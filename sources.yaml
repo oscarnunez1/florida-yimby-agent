@@ -1,0 +1,47 @@
+rss:
+  - name: The Real Deal Miami
+    url: https://therealdeal.com/miami/feed/
+    tags: [miami, commercial, residential, development]
+
+  - name: Floridian Development
+    url: https://www.floridiandevelopment.com/feed/
+    tags: [florida, development, construction]
+
+  - name: Commercial Observer
+    url: https://commercialobserver.com/feed/
+    tags: [commercial, development, finance]
+
+  - name: Construction Dive
+    url: https://www.constructiondive.com/feeds/news/
+    tags: [construction, development, national]
+
+  - name: Bisnow
+    url: https://www.bisnow.com/rss/
+    tags: [commercial, development, national, south-florida]
+    # Global feed — filter for FL relevance during classification (Session 3)
+
+html_scrape:
+  - name: Arquitectonica Projects
+    url: https://arquitectonica.com/architecture/projects/
+    category: architect
+    item_selector: ".project"
+    title_selector: "h3"
+    link_selector: "a.project-image"
+
+  # Kobi Karp moved to wp_rest below — projects listing is JS-rendered (only 2 items in initial HTML)
+
+wp_rest:
+  - name: Kobi Karp Projects
+    url: https://www.kobikarp.com/wp-json/wp/v2/projects
+    category: architect
+    per_page: 100
+
+html_scrape_deferred:
+  - name: Melo Group Projects
+    url: https://melogroup.com/projects/
+    category: developer
+    item_selector: ".project-item"
+    title_selector: ".project-title"
+    link_selector: "a"
+    js_rendered: true
+    # JS-rendered (window.onload redirect to /lander) — deferred to v2 with Playwright

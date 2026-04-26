@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m venv .venv)",
+      "Bash(.venv/bin/pip install *)",
+      "Bash(python3 -m venv .venv)",
+      "Bash(.venv/bin/python *)",
+      "WebFetch(domain:profilemiamire.com)",
+      "Bash(.venv/bin/python3 *)"
+    ]
+  }
+}

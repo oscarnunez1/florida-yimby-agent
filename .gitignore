@@ -1,0 +1,30 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Database
+db.sqlite
+db.sqlite-journal
+
+# Logs
+*.log
+runs.log
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+
+# SQLite sidecar files
+db.sqlite-shm
+db.sqlite-wal
+*.sqlite-shm
+*.sqlite-wal
