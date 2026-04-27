@@ -31,6 +31,7 @@ def init_db() -> None:
                 raw_capture_id      INTEGER NOT NULL REFERENCES raw_captures(id),
                 project_name        TEXT,
                 address             TEXT,
+                city                TEXT,
                 developer           TEXT,
                 architect           TEXT,
                 units               INTEGER,
@@ -39,6 +40,7 @@ def init_db() -> None:
                 event_type          TEXT,
                 priority            INTEGER DEFAULT 0,
                 is_development_item INTEGER NOT NULL DEFAULT 0,
+                florida_relevance   INTEGER NOT NULL DEFAULT 0,
                 extracted_data_json TEXT
             );
 
@@ -68,11 +70,24 @@ def init_db() -> None:
                 dismiss_reason    TEXT
             );
 
-            CREATE INDEX IF NOT EXISTS idx_raw_captures_processed  ON raw_captures(processed);
-            CREATE INDEX IF NOT EXISTS idx_raw_captures_captured_at ON raw_captures(captured_at);
-            CREATE INDEX IF NOT EXISTS idx_briefs_status            ON briefs(status);
-            CREATE INDEX IF NOT EXISTS idx_briefs_created_at        ON briefs(created_at);
+            CREATE INDEX IF NOT EXISTS idx_raw_captures_processed    ON raw_captures(processed);
+            CREATE INDEX IF NOT EXISTS idx_raw_captures_captured_at  ON raw_captures(captured_at);
+            CREATE INDEX IF NOT EXISTS idx_briefs_status              ON briefs(status);
+            CREATE INDEX IF NOT EXISTS idx_briefs_created_at          ON briefs(created_at);
         """)
+
+        # Migrate existing databases that predate the city / florida_relevance columns.
+        for col, definition in [("city", "TEXT"), ("florida_relevance", "INTEGER NOT NULL DEFAULT 0")]:
+            try:
+                conn.execute(f"ALTER TABLE extracted_items ADD COLUMN {col} {definition}")
+            except Exception:
+                pass  # column already exists
+
+        # Index depends on florida_relevance existing — create after migration.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_extracted_florida"
+            " ON extracted_items(florida_relevance, is_development_item)"
+        )
 
 
 if __name__ == "__main__":
