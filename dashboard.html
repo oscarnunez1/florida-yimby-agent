@@ -1,1 +1,37 @@
-<!-- Session 5: Dashboard template — stub -->
+<!-- Session 5: Full dashboard template — stub -->
+<!--
+HEARING BADGE
+─────────────
+Cards in the Today view should call hearing_badge(brief.hearing_date, brief.hearing_board)
+from dashboard.py and render the result below the source line if it is not None.
+
+Example output states:
+  "UDRB hearing in 4 days"   ← delta 1–7 days
+  "UDRB hearing today"        ← delta 0
+  "UDRB heard Apr 30"         ← past hearing
+
+Template sketch (Jinja2):
+
+{% set badge = hearing_badge(brief.hearing_date, brief.hearing_board) %}
+<div class="card">
+  <div class="card-source">{{ brief.source }}</div>
+  {% if badge %}
+  <div class="card-hearing-badge">{{ badge }}</div>
+  {% endif %}
+  <h3 class="card-headline">{{ brief.headline }}</h3>
+  ...
+</div>
+
+CSS hint:
+  .card-hearing-badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: #b45309;          /* amber-700 */
+    margin: 2px 0 6px;
+  }
+  .card-hearing-badge.past {
+    color: #6b7280;          /* gray-500 */
+    font-weight: 400;
+  }
+-->

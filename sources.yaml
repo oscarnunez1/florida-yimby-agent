@@ -36,6 +36,48 @@ wp_rest:
     category: architect
     per_page: 100
 
+# IQM2-powered government meeting calendar pages.
+# Each entry tracks upcoming meetings and detects newly posted agenda packets.
+# Selectors below are IQM2 defaults — override per-source if the municipality
+# has customised its layout.
+#
+# Required fields:
+#   name:           display name (also used as the `source` value in raw_captures)
+#   url:            full URL to the IQM2 Citizens/Calendar.aspx page
+#   board:          board name to attach to hearing_date metadata (e.g. "UDRB")
+#
+# Optional selector overrides (defaults shown):
+#   row_selector:    "tr.rgRow, tr.rgAltRow"
+#   date_selector:   "td:nth-child(2)"
+#   detail_selector: "a[href*='Detail.aspx']"
+#   agenda_selector: "a[href*='FileOpen'], a[href*='Agenda']"
+#
+# Example:
+# iqm2:
+#   - name: City of Example – Planning Board
+#     url: https://example.iqm2.com/Citizens/Calendar.aspx?cat=12
+#     board: Planning Board
+iqm2:
+  - name: Miami Urban Development Review Board
+    url: https://miamifl.iqm2.com/Citizens/Calendar.aspx
+    board: Urban Development Review Board
+    lookahead_days: 60
+
+  - name: Miami Planning Zoning and Appeals Board
+    url: https://miamifl.iqm2.com/Citizens/Calendar.aspx
+    board: Planning, Zoning and Appeals Board
+    lookahead_days: 60
+
+  - name: Miami Historic and Environmental Preservation Board
+    url: https://miamifl.iqm2.com/Citizens/Calendar.aspx
+    board: Historic and Environmental Preservation Board
+    lookahead_days: 60
+
+  - name: Wynwood Design Review Committee
+    url: https://miamifl.iqm2.com/Citizens/Calendar.aspx
+    board: Wynwood Design Review Committee
+    lookahead_days: 60
+
 html_scrape_deferred:
   - name: Melo Group Projects
     url: https://melogroup.com/projects/

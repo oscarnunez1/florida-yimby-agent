@@ -68,13 +68,15 @@ def cmd_classify(limit: Optional[int], dry_run: bool, ids: Optional[list] = None
     system_prompt = CLASSIFY_PROMPT_PATH.read_text()
     client = anthropic.Anthropic()
 
+    _COLS = "id, source, url, title, content, metadata_json"
+
     with get_conn() as conn:
         if ids:
             placeholders = ",".join("?" * len(ids))
-            query = f"SELECT id, source, url, title, content FROM raw_captures WHERE id IN ({placeholders}) ORDER BY id"
+            query = f"SELECT {_COLS} FROM raw_captures WHERE id IN ({placeholders}) ORDER BY id"
             rows = conn.execute(query, ids).fetchall()
         else:
-            query = "SELECT id, source, url, title, content FROM raw_captures WHERE processed = 0 ORDER BY id"
+            query = f"SELECT {_COLS} FROM raw_captures WHERE processed = 0 ORDER BY id"
             if limit:
                 query += f" LIMIT {limit}"
             rows = conn.execute(query).fetchall()
@@ -117,6 +119,27 @@ def cmd_classify(limit: Optional[int], dry_run: bool, ids: Optional[list] = None
             log.error("JSON parse error  id=%d  %r  — raw: %s", capture_id, title[:60], raw[:300])
             skipped += 1
             continue
+
+        # Read capture metadata (IQM2 hearing fields, agenda_newly_posted flag)
+        cap_meta = {}
+        if row["metadata_json"]:
+            try:
+                cap_meta = json.loads(row["metadata_json"])
+            except Exception:
+                pass
+
+        # Newly posted agendas are time-sensitive — force high priority
+        if cap_meta.get("agenda_newly_posted") and data.get("priority") != "high":
+            data["priority"] = "high"
+            log.info("  priority → high  (agenda newly posted)")
+
+        # Merge hearing fields into extracted_data_json so they flow to briefs
+        if cap_meta.get("hearing_date"):
+            data["hearing_date"] = cap_meta["hearing_date"]
+        if cap_meta.get("hearing_board"):
+            data["hearing_board"] = cap_meta["hearing_board"]
+
+        clean = json.dumps(data)  # re-serialise with merged fields
 
         is_dev = bool(data.get("is_development_item"))
         fl_rel = bool(data.get("florida_relevance"))

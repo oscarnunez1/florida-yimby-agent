@@ -67,7 +67,22 @@ def init_db() -> None:
                 status            TEXT    NOT NULL DEFAULT 'pending',
                 created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
                 used_url          TEXT,
-                dismiss_reason    TEXT
+                dismiss_reason    TEXT,
+                hearing_date      TEXT,
+                hearing_board     TEXT
+            );
+
+            -- Tracks IQM2 meeting state between daily scraper runs.
+            -- Used to detect when an agenda packet is newly posted.
+            CREATE TABLE IF NOT EXISTS meetings (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                source           TEXT    NOT NULL,
+                meeting_url      TEXT    NOT NULL UNIQUE,
+                board            TEXT,
+                meeting_date     TEXT,
+                agenda_url       TEXT,
+                first_seen_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+                agenda_posted_at TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_raw_captures_processed    ON raw_captures(processed);
@@ -76,10 +91,17 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_briefs_created_at          ON briefs(created_at);
         """)
 
-        # Migrate existing databases that predate the city / florida_relevance columns.
-        for col, definition in [("city", "TEXT"), ("florida_relevance", "INTEGER NOT NULL DEFAULT 0")]:
+        # Migrations for columns added after initial schema.
+        migrations = [
+            ("extracted_items", "city",              "TEXT"),
+            ("extracted_items", "florida_relevance", "INTEGER NOT NULL DEFAULT 0"),
+            ("raw_captures",    "metadata_json",     "TEXT"),
+            ("briefs",          "hearing_date",      "TEXT"),
+            ("briefs",          "hearing_board",     "TEXT"),
+        ]
+        for table, col, definition in migrations:
             try:
-                conn.execute(f"ALTER TABLE extracted_items ADD COLUMN {col} {definition}")
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
             except Exception:
                 pass  # column already exists
 
