@@ -93,11 +93,14 @@ def init_db() -> None:
 
         # Migrations for columns added after initial schema.
         migrations = [
-            ("extracted_items", "city",              "TEXT"),
-            ("extracted_items", "florida_relevance", "INTEGER NOT NULL DEFAULT 0"),
-            ("raw_captures",    "metadata_json",     "TEXT"),
-            ("briefs",          "hearing_date",      "TEXT"),
-            ("briefs",          "hearing_board",     "TEXT"),
+            ("extracted_items", "city",                 "TEXT"),
+            ("extracted_items", "florida_relevance",    "INTEGER NOT NULL DEFAULT 0"),
+            ("extracted_items", "already_covered",      "INTEGER NOT NULL DEFAULT 0"),
+            ("extracted_items", "coverage_match_url",   "TEXT"),
+            ("raw_captures",    "metadata_json",        "TEXT"),
+            ("briefs",          "hearing_date",         "TEXT"),
+            ("briefs",          "hearing_board",        "TEXT"),
+            ("briefs",          "confirmed_vs_pending", "TEXT"),
         ]
         for table, col, definition in migrations:
             try:

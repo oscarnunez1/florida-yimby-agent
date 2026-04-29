@@ -14,9 +14,13 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+import re
+
 import anthropic
 import httpx
 from dotenv import load_dotenv
+from rapidfuzz import fuzz
+from rapidfuzz import process as rfprocess
 from selectolax.parser import HTMLParser
 
 from db import get_conn, init_db
@@ -30,7 +34,8 @@ PRIORITY_MAP = {"high": 3, "medium": 2, "low": 1}
 CONTENT_TRUNCATE = 6000  # chars sent to Haiku; keeps cost low while covering most articles
 MAX_TOKENS = 1024
 
-ARCHIVE_BASE_URL = "https://floridayimby.com/author/oscar"
+DRAFT_PROMPT_PATH = Path(__file__).parent / "prompts" / "draft_brief.md"
+WP_API_URL = "https://floridayimby.com/wp-json/wp/v2/posts"
 HTML_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 REQUEST_TIMEOUT = 20
 ARTICLE_BODY_CHARS = 2000  # enough for developer/architect to appear; keeps token cost low
@@ -196,27 +201,292 @@ def cmd_classify(limit: Optional[int], dry_run: bool, ids: Optional[list] = None
         log.info("Dry run — no writes to database")
 
 
+# ── dedup ─────────────────────────────────────────────────────────────────────
+
+def _addr_score(a: str, b: str) -> float:
+    """
+    Address similarity that handles multi-parcel assemblages.
+    token_sort_ratio fails when one side lists several parcels ("2401, 2405, and 2525 Lake Drive")
+    and the other names only one ("2525 Lake Drive"). partial_ratio catches that case because
+    the shorter string is a substring of the longer one. We take the max of both.
+    """
+    return max(fuzz.token_sort_ratio(a, b), fuzz.partial_ratio(a, b))
+
+
+def cmd_dedup() -> None:
+    """
+    Fuzzy-match every FL dev extracted_item against coverage_index.
+    Sets already_covered=1 + coverage_match_url when a match is found.
+
+    Matching strategy:
+    - Primary: project_name token_sort_ratio >= 85, then address check if both sides have one.
+    - Address check: max(token_sort_ratio, partial_ratio) >= 85. partial_ratio catches
+      multi-parcel assemblages where one address is a substring of the other.
+    - Fallback: if name score < 85 but address-alone score >= 90, match on address.
+      Catches projects where the source uses a different name than Oscar's published article.
+    """
+    with get_conn() as conn:
+        coverage = conn.execute(
+            "SELECT project_name, address, article_url FROM coverage_index WHERE project_name IS NOT NULL"
+        ).fetchall()
+
+        if not coverage:
+            log.info("Coverage index is empty — run ingest-coverage first")
+            return
+
+        cov_names   = [r["project_name"] for r in coverage]
+        cov_addrs   = [(r["address"] or "").strip() for r in coverage]
+
+        items = conn.execute("""
+            SELECT id, project_name, address
+            FROM extracted_items
+            WHERE is_development_item = 1 AND florida_relevance = 1
+            ORDER BY id
+        """).fetchall()
+
+        log.info("Deduping %d FL dev items against %d coverage entries", len(items), len(coverage))
+
+        matched = unmatched = skipped = 0
+
+        for item in items:
+            pname   = (item["project_name"] or "").strip()
+            address = (item["address"] or "").strip()
+
+            if not pname:
+                conn.execute("UPDATE extracted_items SET already_covered=0 WHERE id=?", (item["id"],))
+                skipped += 1
+                continue
+
+            # ── Primary path: name match ──────────────────────────────────────
+            result = rfprocess.extractOne(
+                pname, cov_names,
+                scorer=fuzz.token_sort_ratio,
+                score_cutoff=85,
+            )
+
+            if result is not None:
+                _, name_score, idx = result
+                cov_row  = coverage[idx]
+                cov_addr = cov_addrs[idx]
+
+                # Confirm with address when both sides have one.
+                if address and cov_addr:
+                    ascore = _addr_score(address, cov_addr)
+                    if ascore < 85:
+                        conn.execute("UPDATE extracted_items SET already_covered=0 WHERE id=?", (item["id"],))
+                        unmatched += 1
+                        log.info("  near-miss  id=%-4d  name=%d  addr=%d  [%s]",
+                                 item["id"], name_score, ascore, pname[:50])
+                        continue
+
+                conn.execute(
+                    "UPDATE extracted_items SET already_covered=1, coverage_match_url=? WHERE id=?",
+                    (cov_row["article_url"], item["id"]),
+                )
+                log.info("  MATCH(name)  id=%-4d  score=%d  [%s]  →  %s",
+                         item["id"], name_score, pname[:40], cov_row["article_url"].split("/")[-1][:60])
+                matched += 1
+                continue
+
+            # ── Fallback: address-alone match ─────────────────────────────────
+            # Catches projects where source uses a different name than Oscar's article.
+            if address:
+                best_addr_score = 0.0
+                best_idx = -1
+                for idx, cov_addr in enumerate(cov_addrs):
+                    if not cov_addr:
+                        continue
+                    s = _addr_score(address, cov_addr)
+                    if s > best_addr_score:
+                        best_addr_score = s
+                        best_idx = idx
+
+                if best_addr_score >= 90 and best_idx >= 0:
+                    cov_row = coverage[best_idx]
+                    conn.execute(
+                        "UPDATE extracted_items SET already_covered=1, coverage_match_url=? WHERE id=?",
+                        (cov_row["article_url"], item["id"]),
+                    )
+                    log.info("  MATCH(addr)  id=%-4d  addr_score=%d  [%s]  →  %s",
+                             item["id"], best_addr_score, pname[:40], cov_row["article_url"].split("/")[-1][:60])
+                    matched += 1
+                    continue
+
+            conn.execute("UPDATE extracted_items SET already_covered=0 WHERE id=?", (item["id"],))
+            unmatched += 1
+
+    log.info("Dedup done — %d already covered, %d new, %d skipped (no project_name)",
+             matched, unmatched, skipped)
+
+
+# ── brief drafting ────────────────────────────────────────────────────────────
+
+_SECTION_RE = re.compile(
+    r"^##\s*(HEADLINE|LEDE|BODY|FACT SHEET|SOURCES|CONFIRMED VS PENDING|OPEN QUESTIONS|ACCURACY SCORE)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _parse_brief_sections(text: str) -> dict[str, str]:
+    """Split Opus output on ## SECTION headers into a dict keyed by header name."""
+    parts = _SECTION_RE.split(text)
+    # parts = [preamble, key1, body1, key2, body2, ...]
+    sections: dict[str, str] = {}
+    for i in range(1, len(parts) - 1, 2):
+        sections[parts[i].strip().upper()] = parts[i + 1].strip()
+    return sections
+
+
+def _extract_accuracy_score(text: str) -> Optional[float]:
+    m = re.search(r"\b(\d{1,3})\b", text or "")
+    return float(m.group(1)) if m else None
+
+
+def cmd_draft_briefs(limit: Optional[int]) -> None:
+    """
+    For each unmatched FL dev item with no existing brief, call Opus to generate
+    an 8-section research brief in Michael Young's editorial voice.
+    """
+    system_prompt = DRAFT_PROMPT_PATH.read_text()
+    client = anthropic.Anthropic()
+
+    with get_conn() as conn:
+        query = """
+            SELECT ei.id, ei.project_name, ei.address, ei.city, ei.developer,
+                   ei.architect, ei.units, ei.height, ei.status, ei.event_type,
+                   ei.priority, ei.extracted_data_json,
+                   rc.content  AS source_content,
+                   rc.url      AS source_url,
+                   rc.source   AS source_name
+            FROM extracted_items ei
+            JOIN raw_captures rc ON rc.id = ei.raw_capture_id
+            WHERE ei.is_development_item  = 1
+              AND ei.florida_relevance    = 1
+              AND ei.already_covered      = 0
+              AND NOT EXISTS (
+                  SELECT 1 FROM briefs b WHERE b.extracted_item_id = ei.id
+              )
+            ORDER BY ei.priority DESC, ei.id
+        """
+        if limit:
+            query += f" LIMIT {limit}"
+        rows = conn.execute(query).fetchall()
+
+    if not rows:
+        log.info("No eligible items — run dedup first or all briefs already drafted")
+        return
+
+    log.info("Drafting briefs for %d items", len(rows))
+    ok = skipped = 0
+
+    for row in rows:
+        item_id = row["id"]
+        data    = json.loads(row["extracted_data_json"] or "{}")
+
+        # Build the user message: structured data + source content
+        user_parts = [
+            f"Project: {row['project_name'] or 'Unknown'}",
+            f"Address: {row['address'] or 'Unknown'}",
+            f"City: {row['city'] or data.get('city') or 'Unknown'}",
+            f"Developer: {row['developer'] or 'Unknown'}",
+            f"Architect: {row['architect'] or 'Unknown'}",
+            f"Units: {row['units'] or data.get('units') or 'Unknown'}",
+            f"Height: {row['height'] or data.get('height_ft') or 'Unknown'} ft",
+            f"Status: {row['status'] or 'Unknown'}",
+            f"Event type: {row['event_type'] or 'Unknown'}",
+            f"Source: {row['source_name']}",
+            f"Source URL: {row['source_url']}",
+        ]
+        hearing_date  = data.get("hearing_date")
+        hearing_board = data.get("hearing_board")
+        if hearing_date:
+            user_parts.append(f"Hearing date: {hearing_date}")
+        if hearing_board:
+            user_parts.append(f"Hearing board: {hearing_board}")
+
+        source_content = (row["source_content"] or "").strip()
+        if source_content:
+            user_parts.append(f"\nSource content:\n{source_content[:4000]}")
+
+        user_text = "\n".join(user_parts)
+
+        try:
+            response = client.messages.create(
+                model="claude-opus-4-5",
+                max_tokens=2048,
+                system=[{"type": "text", "text": system_prompt,
+                         "cache_control": {"type": "ephemeral"}}],
+                messages=[{"role": "user", "content": user_text}],
+            )
+            raw = response.content[0].text.strip()
+        except Exception as exc:
+            log.error("API error  id=%d  %r  — %s", item_id, row["project_name"], exc)
+            skipped += 1
+            continue
+
+        sections = _parse_brief_sections(raw)
+        if not sections:
+            log.error("Parse error  id=%d — no sections found in:\n%s", item_id, raw[:300])
+            skipped += 1
+            continue
+
+        headline = sections.get("HEADLINE", "")
+        lede     = sections.get("LEDE", "")
+        log.info("  id=%-4d  [%s]  %s", item_id, row["project_name"] or "?", headline[:70])
+
+        with get_conn() as conn:
+            conn.execute(
+                """INSERT INTO briefs
+                       (extracted_item_id, headline, lede, body, fact_sheet_json,
+                        sources, confirmed_vs_pending, open_questions, accuracy_score,
+                        hearing_date, hearing_board, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')""",
+                (
+                    item_id,
+                    headline,
+                    lede,
+                    sections.get("BODY", ""),
+                    sections.get("FACT SHEET", ""),
+                    sections.get("SOURCES", ""),
+                    sections.get("CONFIRMED VS PENDING", ""),
+                    sections.get("OPEN QUESTIONS", ""),
+                    _extract_accuracy_score(sections.get("ACCURACY SCORE", "")),
+                    hearing_date,
+                    hearing_board,
+                ),
+            )
+        ok += 1
+
+    log.info("Done — %d briefs drafted, %d skipped", ok, skipped)
+
+
 # ── coverage index ingestion ──────────────────────────────────────────────────
 
-def _scrape_archive_page(page: int) -> list[dict]:
-    """Return article stubs from one page of the author archive."""
-    url = ARCHIVE_BASE_URL if page == 1 else f"{ARCHIVE_BASE_URL}/page/{page}"
-    r = httpx.get(url, timeout=REQUEST_TIMEOUT, follow_redirects=True,
-                  headers={"User-Agent": HTML_USER_AGENT})
+def _fetch_wp_api_page(page: int) -> tuple[list[dict], int]:
+    """Fetch one page of all posts from the WordPress REST API.
+    Returns (stubs, total_pages). Content is extracted from content.rendered (HTML stripped).
+    The API returns posts newest-first, includes all authors.
+    """
+    r = httpx.get(
+        WP_API_URL,
+        params={"per_page": 100, "page": page, "_fields": "id,link,title,date,content"},
+        timeout=REQUEST_TIMEOUT,
+        headers={"User-Agent": HTML_USER_AGENT},
+    )
     r.raise_for_status()
-    tree = HTMLParser(r.text)
+    total_pages = int(r.headers.get("X-WP-TotalPages", 1))
     stubs = []
-    for art in tree.css("article"):
-        link_el = art.css_first("a[title]")
-        time_el = art.css_first("time")
-        if not link_el:
-            continue
-        href  = link_el.attributes.get("href", "").strip()
-        title = link_el.attributes.get("title", "").strip()
-        date  = (time_el.attributes.get("datetime", "") if time_el else "")[:10] or None
-        if href:
-            stubs.append({"url": href, "title": title, "published_at": date})
-    return stubs
+    for post in r.json():
+        raw_html = (post.get("content") or {}).get("rendered") or ""
+        body     = HTMLParser(raw_html).text(strip=True)[:ARTICLE_BODY_CHARS]
+        title_html = (post.get("title") or {}).get("rendered") or ""
+        stubs.append({
+            "url":          (post.get("link") or "").strip(),
+            "title":        HTMLParser(title_html).text(strip=True),
+            "published_at": ((post.get("date") or "")[:10]) or None,
+            "body":         body,
+        })
+    return stubs, total_pages
 
 
 def _fetch_article_body(url: str) -> str:
@@ -241,26 +511,26 @@ def _extract_coverage_fields(title: str, body: str, client: anthropic.Anthropic,
 
 def cmd_ingest_coverage(limit: Optional[int]) -> None:
     """
-    Walk floridayimby.com/author/oscar newest-first, extract structured fields
-    from each unindexed article via Haiku, and insert into coverage_index.
-
-    Stops early when it hits a fully-indexed archive page (incremental runs are fast).
-    Use --limit N to cap API calls per invocation.
+    Walk the full floridayimby.com post archive via the WordPress REST API,
+    extract structured fields from each unindexed article via Haiku, and insert
+    into coverage_index. Covers all staff writers, not just Oscar's byline.
+    Article body comes inline from the API — no per-article HTTP fetch needed.
     """
     system_prompt = INGEST_PROMPT_PATH.read_text()
     client = anthropic.Anthropic()
 
     # ── Phase 1: collect unindexed article stubs ──────────────────────────────
-    log.info("Crawling archive at %s", ARCHIVE_BASE_URL)
+    log.info("Crawling site archive via WordPress REST API at %s", WP_API_URL)
     stubs_to_process: list[dict] = []
-    seen_urls: set[str] = set()  # guard against pagination-shift duplicates
+    seen_urls: set[str] = set()
+    total_pages: Optional[int] = None
 
     with get_conn() as conn:
-        for page in range(1, 500):
+        for page in range(1, 10_000):
             try:
-                stubs = _scrape_archive_page(page)
+                stubs, total_pages = _fetch_wp_api_page(page)
             except Exception as exc:
-                log.warning("Archive page %d failed — %s", page, exc)
+                log.warning("API page %d failed — %s", page, exc)
                 break
 
             if not stubs:
@@ -269,7 +539,7 @@ def cmd_ingest_coverage(limit: Optional[int]) -> None:
 
             new_on_page = 0
             for stub in stubs:
-                if stub["url"] in seen_urls:
+                if not stub["url"] or stub["url"] in seen_urls:
                     continue
                 seen_urls.add(stub["url"])
                 if not conn.execute("SELECT 1 FROM coverage_index WHERE article_url = ?",
@@ -277,11 +547,11 @@ def cmd_ingest_coverage(limit: Optional[int]) -> None:
                     stubs_to_process.append(stub)
                     new_on_page += 1
 
-            log.info("Page %3d: %d/%d new articles", page, new_on_page, len(stubs))
+            log.info("Page %3d/%s: %d/%d new articles",
+                     page, total_pages or "?", new_on_page, len(stubs))
 
-            # Stop only once we have enough new articles for this run.
-            # Do NOT stop on new_on_page == 0 — already-indexed pages are normal
-            # during a multi-run backfill and must not abort the crawl.
+            if total_pages and page >= total_pages:
+                break
             if limit and len(stubs_to_process) >= limit:
                 break
 
@@ -293,19 +563,14 @@ def cmd_ingest_coverage(limit: Optional[int]) -> None:
     remaining_after = len(stubs_to_process) - len(batch)
     log.info("Ingesting %d articles (%d unindexed total found)", len(batch), len(stubs_to_process))
 
-    # ── Phase 2: fetch + extract + insert ─────────────────────────────────────
+    # ── Phase 2: extract fields + insert ──────────────────────────────────────
+    # Body is already in the stub from the REST API — no per-article fetch needed.
     ok = skipped = sparse = 0
 
     for stub in batch:
         url   = stub["url"]
         title = stub["title"]
-
-        try:
-            body = _fetch_article_body(url)
-        except Exception as exc:
-            log.warning("  SKIP fetch  %s — %s", url, exc)
-            skipped += 1
-            continue
+        body  = stub["body"]
 
         try:
             data = _extract_coverage_fields(title, body, client, system_prompt)
@@ -362,6 +627,12 @@ def main() -> None:
     p_ingest.add_argument("--limit", type=int, default=None, metavar="N",
                           help="Process at most N articles per run (omit to ingest all)")
 
+    sub.add_parser("dedup", help="Fuzzy-match extracted_items against coverage_index")
+
+    p_draft = sub.add_parser("draft-briefs", help="Draft briefs for uncovered FL dev items using Opus")
+    p_draft.add_argument("--limit", type=int, default=None, metavar="N",
+                         help="Draft at most N briefs per run")
+
     args = parser.parse_args()
 
     if args.command == "status":
@@ -371,6 +642,10 @@ def main() -> None:
         cmd_classify(limit=args.limit, dry_run=args.dry_run, ids=ids)
     elif args.command == "ingest-coverage":
         cmd_ingest_coverage(limit=args.limit)
+    elif args.command == "dedup":
+        cmd_dedup()
+    elif args.command == "draft-briefs":
+        cmd_draft_briefs(limit=args.limit)
 
 
 if __name__ == "__main__":

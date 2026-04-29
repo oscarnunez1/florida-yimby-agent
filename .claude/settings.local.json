@@ -6,7 +6,8 @@
       "Bash(python3 -m venv .venv)",
       "Bash(.venv/bin/python *)",
       "WebFetch(domain:profilemiamire.com)",
-      "Bash(.venv/bin/python3 *)"
+      "Bash(.venv/bin/python3 *)",
+      "WebFetch(domain:floridayimby.com)"
     ]
   }
 }
