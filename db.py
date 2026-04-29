@@ -101,7 +101,20 @@ def init_db() -> None:
             ("briefs",          "hearing_date",         "TEXT"),
             ("briefs",          "hearing_board",        "TEXT"),
             ("briefs",          "confirmed_vs_pending", "TEXT"),
+            ("briefs",          "snoozed_until",        "TEXT"),
         ]
+
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS daily_log (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_date         TEXT    NOT NULL,
+                new_captures     INTEGER NOT NULL DEFAULT 0,
+                new_briefs       INTEGER NOT NULL DEFAULT 0,
+                errors_json      TEXT,
+                duration_seconds REAL,
+                created_at       TEXT    NOT NULL DEFAULT (datetime('now'))
+            );
+        """)
         for table, col, definition in migrations:
             try:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")

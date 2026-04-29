@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}{{ b.headline[:60] }} — FL YIMBY{% endblock %}
+{% block content %}
+{% set pclass = {3:'high',2:'medium',1:'low'}.get(b.priority, 'low') %}
+{% set sclass = b.status if b.status in ('new','used','dismissed','snoozed') else 'new' %}
+{% set slabel = {'new':'New','used':'Used','dismissed':'Dismissed','snoozed':'Snoozed','pending':'New'}.get(b.status, 'New') %}
+{% set badge = hearing_badge(b.hearing_date, b.hearing_board) %}
+
+<div style="margin-bottom:12px">
+  <a href="/history" style="font-size:13px;color:#64748b;text-decoration:none">← History</a>
+</div>
+
+<div class="card" data-id="{{ b.id }}"
+     data-lede="{{ b.lede|replace('"','&quot;') }}"
+     data-body="{{ b.body|replace('"','&quot;') }}">
+
+  <div class="card-header" style="cursor:default">
+    <div class="card-meta">
+      <span class="badge badge-{{ pclass }}">{{ pclass|upper }}</span>
+      <span class="badge badge-{{ sclass }} status-badge">{{ slabel }}</span>
+      <span class="card-source">{{ b.source }} · {{ b.captured_at[:10] if b.captured_at else '—' }}</span>
+    </div>
+    {% if badge %}
+      <div class="hearing-badge {{ 'past' if 'heard' in badge else '' }}">{{ badge }}</div>
+    {% endif %}
+    <div class="card-headline" style="font-size:18px">{{ b.headline }}</div>
+    <div class="accuracy" style="margin-top:4px">Accuracy: {{ b.accuracy_score|int if b.accuracy_score else '—' }}/100</div>
+  </div>
+
+  <div class="card-actions">
+    <button class="btn btn-success" onclick="cardAction({{ b.id }}, 'use')">Mark used</button>
+    <button class="btn" onclick="toggleDismiss({{ b.id }})">Dismiss ▾</button>
+    <button class="btn" onclick="cardAction({{ b.id }}, 'snooze')">Snooze 24h</button>
+    <button class="btn btn-copy" onclick="copyAsHtml({{ b.id }})">Copy as WordPress HTML</button>
+    <div class="dismiss-form" data-id="{{ b.id }}">
+      <select>
+        <option value="not_relevant">Not relevant</option>
+        <option value="already_covered">Already covered</option>
+        <option value="wrong_market">Wrong market</option>
+        <option value="low_priority">Low priority</option>
+        <option value="duplicate">Duplicate</option>
+        <option value="other">Other</option>
+      </select>
+      <button class="btn btn-danger" onclick="submitDismiss({{ b.id }})">Confirm</button>
+      <button class="btn" onclick="toggleDismiss({{ b.id }})">Cancel</button>
+    </div>
+  </div>
+
+  <div class="card-body open">
+    {% if b.lede %}
+      <div class="section-label">Lede</div>
+      <div class="section-text">{{ b.lede }}</div>
+    {% endif %}
+    {% if b.body %}
+      <div class="section-label">Body</div>
+      <div class="section-text">{{ b.body }}</div>
+    {% endif %}
+    {% if b.fact_sheet_json %}
+      <div class="section-label">Fact Sheet</div>
+      <div class="section-text">{{ b.fact_sheet_json }}</div>
+    {% endif %}
+    {% if b.confirmed_vs_pending %}
+      <div class="section-label">Confirmed vs Pending</div>
+      <div class="section-text">{{ b.confirmed_vs_pending }}</div>
+    {% endif %}
+    {% if b.open_questions %}
+      <div class="section-label">Open Questions</div>
+      <div class="section-text">{{ b.open_questions }}</div>
+    {% endif %}
+    {% if b.sources %}
+      <div class="section-label">Sources</div>
+      <div class="section-text">{% for url in b.sources.split('\n') %}{% set url = url.strip() %}{% if url %}<a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a><br>{% endif %}{% endfor %}</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

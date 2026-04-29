@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}History — FL YIMBY{% endblock %}
+{% block content %}
+<h1>History</h1>
+<p class="subtitle">All briefs · {{ total }} total</p>
+
+<form class="filters" method="get" action="/history">
+  <div class="filter-group">
+    <label>Source type</label>
+    <select name="src_type">
+      <option value="">All</option>
+      <option value="rss"        {{ 'selected' if filters.src_type == 'rss' }}>News (RSS)</option>
+      <option value="iqm2"       {{ 'selected' if filters.src_type == 'iqm2' }}>Municipal (IQM2)</option>
+      <option value="html_scrape"{{ 'selected' if filters.src_type == 'html_scrape' }}>HTML scrape</option>
+      <option value="wp_rest"    {{ 'selected' if filters.src_type == 'wp_rest' }}>WP REST</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>Priority</label>
+    <select name="priority">
+      <option value="">All</option>
+      <option value="3" {{ 'selected' if filters.priority == '3' }}>High</option>
+      <option value="2" {{ 'selected' if filters.priority == '2' }}>Medium</option>
+      <option value="1" {{ 'selected' if filters.priority == '1' }}>Low</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>Status</label>
+    <select name="status">
+      <option value="">All</option>
+      <option value="new"       {{ 'selected' if filters.status == 'new' }}>New</option>
+      <option value="used"      {{ 'selected' if filters.status == 'used' }}>Used</option>
+      <option value="dismissed" {{ 'selected' if filters.status == 'dismissed' }}>Dismissed</option>
+      <option value="snoozed"   {{ 'selected' if filters.status == 'snoozed' }}>Snoozed</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>Board</label>
+    <input name="board" value="{{ filters.board }}" placeholder="e.g. UDRB">
+  </div>
+  <div class="filter-group">
+    <label>From</label>
+    <input type="date" name="from_date" value="{{ filters.from_date }}">
+  </div>
+  <div class="filter-group">
+    <label>To</label>
+    <input type="date" name="to_date" value="{{ filters.to_date }}">
+  </div>
+  <div class="filter-group" style="justify-content:flex-end">
+    <label>&nbsp;</label>
+    <button type="submit" class="btn btn-primary">Filter</button>
+  </div>
+</form>
+
+{% if not briefs %}
+<div class="empty"><div class="empty-icon">🔍</div>No briefs match the current filters.</div>
+{% else %}
+<div class="card" style="overflow:visible">
+<table>
+  <thead>
+    <tr>
+      <th>Date</th>
+      <th>Headline</th>
+      <th>Source</th>
+      <th>Priority</th>
+      <th>Status</th>
+      <th>Accuracy</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for b in briefs %}
+  {% set pclass = {3:'high',2:'medium',1:'low'}.get(b.priority, 'low') %}
+  {% set sclass = b.status if b.status in ('new','used','dismissed','snoozed') else 'new' %}
+  {% set slabel = {'new':'New','used':'Used','dismissed':'Dismissed','snoozed':'Snoozed','pending':'New'}.get(b.status, 'New') %}
+  <tr>
+    <td style="white-space:nowrap;color:#64748b">{{ b.created_at[:10] if b.created_at else '—' }}</td>
+    <td><a href="/briefs/{{ b.id }}">{{ b.headline }}</a>
+      {% set badge = hearing_badge(b.hearing_date, b.hearing_board) %}
+      {% if badge %}<br><span class="hearing-badge {{ 'past' if 'heard' in badge else '' }}" style="margin:4px 0 0;display:inline-block">{{ badge }}</span>{% endif %}
+    </td>
+    <td style="color:#64748b;white-space:nowrap">{{ b.source }}</td>
+    <td><span class="badge badge-{{ pclass }}">{{ pclass|upper }}</span></td>
+    <td><span class="badge badge-{{ sclass }}">{{ slabel }}</span></td>
+    <td style="color:#94a3b8">{{ b.accuracy_score|int if b.accuracy_score else '—' }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<div class="pagination">
+  {% if page > 1 %}
+    <a href="{{ url_for('history', page=page-1, **filters) }}">← Prev</a>
+  {% endif %}
+  {% for p in range([1, page-2]|max, [total_pages+1, page+3]|min) %}
+    <a href="{{ url_for('history', page=p, **filters) }}" class="{{ 'current' if p == page }}">{{ p }}</a>
+  {% endfor %}
+  {% if page < total_pages %}
+    <a href="{{ url_for('history', page=page+1, **filters) }}">Next →</a>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

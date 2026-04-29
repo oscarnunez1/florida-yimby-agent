@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Sources — FL YIMBY{% endblock %}
+{% block content %}
+<h1>Sources</h1>
+<p class="subtitle">{{ sources|length }} configured sources · stale = no new items in 3+ days</p>
+
+<div class="card" style="overflow:visible">
+<table>
+  <thead>
+    <tr>
+      <th>Health</th>
+      <th>Source</th>
+      <th>Type</th>
+      <th>Last captured</th>
+      <th>7-day items</th>
+      <th>Total items</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for s in sources %}
+  <tr>
+    <td>
+      {% if s.total_items == 0 %}
+        <span class="no-dot"></span><span style="color:#94a3b8;font-size:12px">No data</span>
+      {% elif s.stale %}
+        <span class="stale-dot"></span><span style="color:#ef4444;font-size:12px">Stale</span>
+      {% else %}
+        <span class="ok-dot"></span><span style="color:#16a34a;font-size:12px">OK</span>
+      {% endif %}
+    </td>
+    <td style="font-weight:500">{{ s.name }}</td>
+    <td><span class="badge badge-low" style="font-size:10px">{{ s.type }}</span></td>
+    <td style="color:#64748b;font-size:13px;white-space:nowrap">
+      {% if s.last_captured %}{{ s.last_captured[:16] }}{% else %}—{% endif %}
+    </td>
+    <td style="text-align:right;font-weight:{% if s.recent_items > 0 %}600{% else %}400{% endif %}">
+      {{ s.recent_items }}
+    </td>
+    <td style="text-align:right;color:#64748b">{{ s.total_items }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<p style="font-size:12px;color:#94a3b8;margin-top:12px">
+  Stale threshold: no new captures in 3 days. Run <code>python scrape.py</code> or <code>python run_daily.py</code> to refresh.
+</p>
+{% endblock %}

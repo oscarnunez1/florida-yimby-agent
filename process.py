@@ -440,7 +440,7 @@ def cmd_draft_briefs(limit: Optional[int]) -> None:
                        (extracted_item_id, headline, lede, body, fact_sheet_json,
                         sources, confirmed_vs_pending, open_questions, accuracy_score,
                         hearing_date, hearing_board, status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new')""",
                 (
                     item_id,
                     headline,

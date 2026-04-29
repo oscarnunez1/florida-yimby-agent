@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Coverage Index — FL YIMBY{% endblock %}
+{% block content %}
+<h1>Coverage Index</h1>
+<p class="subtitle">{{ total }} published articles indexed from floridayimby.com</p>
+
+<form class="search-box" method="get" action="/coverage">
+  <input name="q" value="{{ q }}" placeholder="Search by project name or address…" autofocus>
+  <button type="submit" class="btn btn-primary">Search</button>
+  {% if q %}<a href="/coverage" class="btn">Clear</a>{% endif %}
+</form>
+
+{% if not entries %}
+<div class="empty"><div class="empty-icon">🔍</div>No results for "{{ q }}".</div>
+{% else %}
+<div class="card" style="overflow:visible">
+<table>
+  <thead>
+    <tr>
+      <th>Published</th>
+      <th>Project</th>
+      <th>Address</th>
+      <th>Developer</th>
+      <th>Article</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for e in entries %}
+  <tr>
+    <td style="white-space:nowrap;color:#64748b;font-size:12px">{{ e.published_at[:10] if e.published_at else '—' }}</td>
+    <td style="font-weight:500">{{ e.project_name or '—' }}</td>
+    <td style="color:#64748b;font-size:13px">{{ e.address or '—' }}</td>
+    <td style="color:#64748b;font-size:13px">{{ e.developer or '—' }}</td>
+    <td style="font-size:12px">
+      <a href="{{ e.article_url }}" target="_blank" rel="noopener">
+        {{ e.article_url.split('/')[-1][:55] }}…
+      </a>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<div class="pagination">
+  {% if page > 1 %}
+    <a href="{{ url_for('coverage', page=page-1, q=q) }}">← Prev</a>
+  {% endif %}
+  {% for p in range([1, page-2]|max, [total_pages+1, page+3]|min) %}
+    <a href="{{ url_for('coverage', page=p, q=q) }}" class="{{ 'current' if p == page }}">{{ p }}</a>
+  {% endfor %}
+  {% if page < total_pages %}
+    <a href="{{ url_for('coverage', page=page+1, q=q) }}">Next →</a>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}
