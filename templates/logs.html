@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Logs — FL YIMBY{% endblock %}
+{% block content %}
+<h1>Pipeline Logs</h1>
+<p class="subtitle">Daily run history and latest log output</p>
+
+{% if not runs %}
+<div class="empty"><div class="empty-icon">📋</div>No runs logged yet. Run <code>python run_daily.py</code> to generate the first entry.</div>
+{% else %}
+<div class="card" style="overflow:visible;margin-bottom:20px">
+<table>
+  <thead>
+    <tr>
+      <th>Status</th>
+      <th>Run date</th>
+      <th>New captures</th>
+      <th>New briefs</th>
+      <th>Duration</th>
+      <th>Errors</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in runs %}
+  {% set has_errors = r.errors_json and r.errors_json != 'null' %}
+  <tr>
+    <td>
+      {% if has_errors %}
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;vertical-align:middle"></span>
+        <span style="color:#ef4444;font-size:12px;margin-left:4px">Error</span>
+      {% else %}
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;vertical-align:middle"></span>
+        <span style="color:#16a34a;font-size:12px;margin-left:4px">OK</span>
+      {% endif %}
+    </td>
+    <td style="font-weight:500">{{ r.run_date }}</td>
+    <td style="text-align:right">{{ r.new_captures }}</td>
+    <td style="text-align:right;font-weight:{% if r.new_briefs > 0 %}600{% else %}400{% endif %}">{{ r.new_briefs }}</td>
+    <td style="color:#64748b;font-size:13px">{{ '%.1f'|format(r.duration_seconds) if r.duration_seconds else '—' }}s</td>
+    <td style="font-size:12px;color:#64748b;max-width:260px;word-break:break-word">
+      {% if has_errors %}
+        <span style="color:#b91c1c">{{ r.errors_json }}</span>
+      {% else %}—{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+<h2 style="font-size:16px;font-weight:600;margin-bottom:8px">
+  Latest log file
+  {% if log_filename %}<span style="font-size:13px;font-weight:400;color:#64748b">— {{ log_filename }}</span>{% endif %}
+</h2>
+
+{% if log_lines %}
+<div style="background:#0f172a;border-radius:8px;padding:16px;overflow-x:auto">
+  <pre style="font-family:'SF Mono',Menlo,monospace;font-size:12px;line-height:1.6;color:#e2e8f0;margin:0;white-space:pre-wrap;word-break:break-all">{% for line in log_lines %}{% if 'ERROR' in line or 'FAILED' in line %}<span style="color:#f87171">{{ line }}</span>
+{% elif 'WARNING' in line or 'SKIP' in line %}<span style="color:#fbbf24">{{ line }}</span>
+{% elif 'Done' in line or 'OK' in line or 'finished' in line %}<span style="color:#86efac">{{ line }}</span>
+{% else %}{{ line }}
+{% endif %}{% endfor %}</pre>
+</div>
+<p style="font-size:12px;color:#94a3b8;margin-top:8px">Showing last {{ log_lines|length }} lines.</p>
+{% else %}
+<div class="empty" style="background:#fff;border:1px solid #e2e8f0;border-radius:8px">
+  <div class="empty-icon">📄</div>
+  No log file found for today. The file is written when <code>run_daily.sh</code> executes.
+</div>
+{% endif %}
+{% endblock %}

@@ -7,7 +7,10 @@
       "Bash(.venv/bin/python *)",
       "WebFetch(domain:profilemiamire.com)",
       "Bash(.venv/bin/python3 *)",
-      "WebFetch(domain:floridayimby.com)"
+      "WebFetch(domain:floridayimby.com)",
+      "Bash(pkill -f \"python.*dashboard.py\")",
+      "Bash(bash run_daily.sh)",
+      "Bash(echo \"exit: $?\")"
     ]
   }
 }

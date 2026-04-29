@@ -15,6 +15,7 @@ db.sqlite-journal
 # Logs
 *.log
 runs.log
+logs/
 
 # macOS
 .DS_Store

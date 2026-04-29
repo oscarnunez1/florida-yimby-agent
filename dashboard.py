@@ -7,6 +7,7 @@ Routes:
   GET  /sources             — Source health table
   GET  /coverage            — Coverage index with search
   GET  /briefs/<id>         — Single-brief detail page
+  GET  /logs                — Pipeline run history + latest log file
   POST /briefs/<id>/use     — Mark brief as used
   POST /briefs/<id>/dismiss — Dismiss brief with reason
   POST /briefs/<id>/snooze  — Snooze brief 24 h
@@ -316,6 +317,38 @@ def brief_snooze(brief_id: int):
     if not rows:
         return jsonify(ok=False, error="Brief not found"), 404
     return jsonify(ok=True)
+
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+
+LOGS_DIR = Path(__file__).parent / "logs"
+
+@app.route("/logs")
+def logs():
+    with get_conn() as conn:
+        runs = conn.execute(
+            "SELECT * FROM daily_log ORDER BY run_date DESC, id DESC LIMIT 30"
+        ).fetchall()
+
+    # Find the most recent log file in logs/
+    log_lines: list[str] = []
+    log_filename: Optional[str] = None
+    if LOGS_DIR.exists():
+        log_files = sorted(LOGS_DIR.glob("daily_*.log"), reverse=True)
+        if log_files:
+            latest = log_files[0]
+            log_filename = latest.name
+            text = latest.read_text(errors="replace")
+            all_lines = text.splitlines()
+            log_lines = all_lines[-100:]  # last 100 lines
+
+    return render_template(
+        "logs.html",
+        runs=runs,
+        log_lines=log_lines,
+        log_filename=log_filename,
+        active_page="logs",
+    )
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
