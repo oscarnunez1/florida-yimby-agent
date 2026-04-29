@@ -506,7 +506,15 @@ def _extract_coverage_fields(title: str, body: str, client: anthropic.Anthropic,
         system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": user_text}],
     )
-    return json.loads(_strip_fences(resp.content[0].text.strip()))
+    raw = json.loads(_strip_fences(resp.content[0].text.strip()))
+    if isinstance(raw, list):
+        # Haiku occasionally wraps the object in an array — take the first element.
+        if not raw:
+            raise ValueError("Haiku returned an empty JSON array")
+        raw = raw[0]
+    if not isinstance(raw, dict):
+        raise ValueError(f"Unexpected JSON type from Haiku: {type(raw).__name__}")
+    return raw
 
 
 def cmd_ingest_coverage(limit: Optional[int]) -> None:
