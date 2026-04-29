@@ -1,10 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Sources — FL YIMBY{% endblock %}
 {% block content %}
+<div class="page-heading">
 <h1>Sources</h1>
 <p class="subtitle">{{ sources|length }} configured sources · stale = no new items in 3+ days</p>
+</div>
 
-<div class="card" style="overflow:visible">
+<div class="table-wrap">
 <table>
   <thead>
     <tr>

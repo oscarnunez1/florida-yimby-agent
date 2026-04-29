@@ -1,47 +1,56 @@
 {% extends "base.html" %}
 {% block title %}Today — FL YIMBY{% endblock %}
 {% block content %}
-<h1>Today</h1>
-<p class="subtitle">{{ briefs|length }} brief{{ 's' if briefs|length != 1 }} · last 24 hours + upcoming hearings</p>
+<div class="page-heading">
+  <h1>Today</h1>
+  <p class="subtitle">{{ briefs|length }} brief{{ 's' if briefs|length != 1 }} · last 24 hours + upcoming hearings</p>
+</div>
 
 {% if not briefs %}
 <div class="empty">
   <div class="empty-icon">📭</div>
-  No new briefs in the last 24 hours. Run <code>python run_daily.py</code> to generate new ones.
+  No new briefs in the last 24 hours.<br>
+  Run <code>python run_daily.py</code> to generate new ones.
 </div>
 {% endif %}
 
 {% for b in briefs %}
-{% set badge = hearing_badge(b.hearing_date, b.hearing_board) %}
-{% set pclass = {3:'high',2:'medium',1:'low'}.get(b.priority, 'low') %}
+{% set badge  = hearing_badge(b.hearing_date, b.hearing_board) %}
+{% set pkey   = {3:'high', 2:'medium', 1:'low'}.get(b.priority, 'low') %}
 {% set sclass = b.status if b.status in ('new','used','dismissed','snoozed') else 'new' %}
-{% set slabel = {'new':'New','used':'Used','dismissed':'Dismissed','snoozed':'Snoozed','pending':'New'}.get(b.status, 'New') %}
-<div class="card" data-id="{{ b.id }}"
-     data-lede="{{ b.lede|replace('"', '&quot;') }}"
-     data-body="{{ b.body|replace('"', '&quot;') }}">
+{% set slabel = {'new':'New','used':'Used','dismissed':'Dismissed','snoozed':'Snoozed','pending':'New'}.get(b.status,'New') %}
+{% set score  = b.accuracy_score|int if b.accuracy_score else 0 %}
+{% set aclass = 'accuracy-num-high' if score >= 80 else ('accuracy-num-mid' if score >= 60 else ('accuracy-num-low' if score > 0 else 'accuracy-num-none')) %}
+
+<div class="card pri-{{ pkey }}" data-id="{{ b.id }}"
+     data-lede="{{ b.lede|e }}"
+     data-body="{{ b.body|e }}">
 
   <div class="card-header">
     <div class="card-meta">
-      <span class="badge badge-{{ pclass }}">{{ pclass|upper }}</span>
+      <span class="badge badge-{{ pkey }}">{{ pkey|upper }}</span>
       <span class="badge badge-{{ sclass }} status-badge">{{ slabel }}</span>
       <span class="card-source">{{ b.source }} · {{ b.captured_at[:10] if b.captured_at else '—' }}</span>
     </div>
     {% if badge %}
-      {% if 'heard' in badge %}
-        <div class="hearing-badge past">{{ badge }}</div>
-      {% else %}
-        <div class="hearing-badge">{{ badge }}</div>
-      {% endif %}
+      <div class="hearing-badge {{ 'past' if 'heard' in badge }}">
+        {{ '🕐' if 'heard' not in badge else '🕒' }} {{ badge }}
+      </div>
     {% endif %}
     <div class="card-headline">{{ b.headline }}</div>
-    <div class="accuracy">Accuracy: {{ b.accuracy_score|int if b.accuracy_score else '—' }}/100</div>
+    <div class="accuracy">
+      Accuracy:&nbsp;<span class="{{ aclass }}"><strong>{{ score if score else '—' }}</strong>{% if score %}/100{% endif %}</span>
+    </div>
   </div>
 
   <div class="card-actions">
-    <button class="btn btn-primary" onclick="this.closest('.card').querySelector('.card-body').classList.toggle('open'); event.stopPropagation()">Open</button>
-    <button class="btn btn-success" onclick="cardAction({{ b.id }}, 'use')">Mark used</button>
-    <button class="btn" onclick="toggleDismiss({{ b.id }}); event.stopPropagation()">Dismiss ▾</button>
-    <button class="btn" onclick="cardAction({{ b.id }}, 'snooze')">Snooze 24h</button>
+    <button class="btn btn-primary"
+            onclick="event.stopPropagation();this.closest('.card').querySelector('.card-body').classList.toggle('open');this.closest('.card').classList.toggle('expanded')">
+      Open
+    </button>
+    <button class="btn btn-success" onclick="event.stopPropagation();cardAction({{ b.id }}, 'use')">Mark used</button>
+    <button class="btn" onclick="event.stopPropagation();toggleDismiss({{ b.id }})">Dismiss ▾</button>
+    <button class="btn" onclick="event.stopPropagation();cardAction({{ b.id }}, 'snooze')">Snooze 24h</button>
     <div class="dismiss-form" data-id="{{ b.id }}">
       <select>
         <option value="not_relevant">Not relevant</option>
@@ -79,7 +88,11 @@
     {% endif %}
     {% if b.sources %}
       <div class="section-label">Sources</div>
-      <div class="section-text">{% for url in b.sources.split('\n') %}{% set url = url.strip() %}{% if url %}<a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a><br>{% endif %}{% endfor %}</div>
+      <div class="section-text">
+        {% for url in b.sources.split('\n') %}{% set url = url.strip() %}{% if url %}
+          <a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a><br>
+        {% endif %}{% endfor %}
+      </div>
     {% endif %}
     <div class="copy-row">
       <button class="btn btn-copy" onclick="copyAsHtml({{ b.id }})">Copy as WordPress HTML</button>

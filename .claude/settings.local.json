@@ -10,7 +10,16 @@
       "WebFetch(domain:floridayimby.com)",
       "Bash(pkill -f \"python.*dashboard.py\")",
       "Bash(bash run_daily.sh)",
-      "Bash(echo \"exit: $?\")"
+      "Bash(echo \"exit: $?\")",
+      "WebFetch(domain:hillsboroughcounty.iqm2.com)",
+      "WebFetch(domain:tampa.iqm2.com)",
+      "WebFetch(domain:stpete.iqm2.com)",
+      "WebFetch(domain:tampa.legistar.com)",
+      "WebFetch(domain:stpete.legistar.com)",
+      "WebFetch(domain:hillsboroughcounty.legistar.com)",
+      "Bash(.venv/bin/python3 dashboard.py)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:5000/)",
+      "Bash(git add *)"
     ]
   }
 }
