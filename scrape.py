@@ -14,10 +14,11 @@ import json
 import logging
 import re
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import anthropic
 import feedparser
@@ -47,6 +48,40 @@ HTML_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/5
 def load_sources() -> dict:
     with open(SOURCES_PATH) as f:
         return yaml.safe_load(f)
+
+
+# ── OG image fetching ─────────────────────────────────────────────────────────
+
+_NON_ARTICLE_DOMAINS = {"arquitectonica.com", "kobikarp.com"}
+
+
+def _is_non_article_url(url: str) -> bool:
+    domain = urlparse(url).netloc.lower()
+    return any(d in domain for d in _NON_ARTICLE_DOMAINS)
+
+
+def fetch_og_image(url: str) -> Optional[str]:
+    """Fetch article page and extract og:image or twitter:image meta tag."""
+    if _is_non_article_url(url):
+        return None
+    try:
+        r = httpx.get(
+            url,
+            timeout=REQUEST_TIMEOUT,
+            follow_redirects=True,
+            headers={"User-Agent": HTML_USER_AGENT},
+        )
+        r.raise_for_status()
+        tree = HTMLParser(r.text)
+        for sel in ('meta[property="og:image"]', 'meta[name="twitter:image"]'):
+            el = tree.css_first(sel)
+            if el:
+                val = el.attributes.get("content", "").strip()
+                if val:
+                    return val
+    except Exception:
+        pass
+    return None
 
 
 # ── RSS ───────────────────────────────────────────────────────────────────────
@@ -80,6 +115,7 @@ def scrape_rss_sources(sources: list[dict]) -> tuple[int, int]:
     """Fetch each RSS source and upsert new entries. Returns (seen, inserted)."""
     total_seen = 0
     total_inserted = 0
+    new_entry_urls: list[str] = []
 
     with get_conn() as conn:
         for source in sources:
@@ -106,15 +142,40 @@ def scrape_rss_sources(sources: list[dict]) -> tuple[int, int]:
                 if not entry_url:
                     continue
 
+                published_at = None
+                for field in ("published_parsed", "updated_parsed"):
+                    parsed = entry.get(field)
+                    if parsed:
+                        try:
+                            published_at = datetime(*parsed[:6]).strftime("%Y-%m-%d")
+                        except Exception:
+                            pass
+                        break
+
                 cur = conn.execute(
-                    "INSERT OR IGNORE INTO raw_captures (source, url, title, content) VALUES (?, ?, ?, ?)",
-                    (name, entry_url, title, content),
+                    "INSERT OR IGNORE INTO raw_captures"
+                    " (source, url, title, content, published_at) VALUES (?, ?, ?, ?, ?)",
+                    (name, entry_url, title, content, published_at),
                 )
                 if cur.rowcount:
                     inserted_count += 1
+                    new_entry_urls.append(entry_url)
 
             total_inserted += inserted_count
             log.info("  %d new  /  %d skipped (already seen)", inserted_count, len(entries) - inserted_count)
+
+        # Fetch OG images for newly inserted RSS captures (0.5s delay each)
+        if new_entry_urls:
+            log.info("Fetching OG images for %d new RSS items…", len(new_entry_urls))
+        for article_url in new_entry_urls:
+            time.sleep(0.5)
+            og = fetch_og_image(article_url)
+            if og:
+                conn.execute(
+                    "UPDATE raw_captures SET og_image_url = ? WHERE url = ?",
+                    (og, article_url),
+                )
+                log.info("  OG image: %s…", article_url[:70])
 
     return total_seen, total_inserted
 

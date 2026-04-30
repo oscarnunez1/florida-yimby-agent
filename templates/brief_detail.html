@@ -10,8 +10,6 @@
   <a href="/history" style="font-size:13px;color:#64748b;text-decoration:none">← History</a>
 </div>
 
-{% set score  = b.accuracy_score|int if b.accuracy_score else 0 %}
-{% set aclass = 'accuracy-num-high' if score >= 80 else ('accuracy-num-mid' if score >= 60 else ('accuracy-num-low' if score > 0 else 'accuracy-num-none')) %}
 <div class="card pri-{{ pclass }}" data-id="{{ b.id }}"
      data-lede="{{ b.lede|replace('"','&quot;') }}"
      data-body="{{ b.body|replace('"','&quot;') }}">
@@ -26,7 +24,6 @@
       <div class="hearing-badge {{ 'past' if 'heard' in badge else '' }}">{{ badge }}</div>
     {% endif %}
     <div class="card-headline" style="font-size:18px">{{ b.headline }}</div>
-    <div class="accuracy" style="margin-top:4px">Accuracy:&nbsp;<span class="{{ aclass }}"><strong>{{ score if score else '—' }}</strong>{% if score %}/100{% endif %}</span></div>
   </div>
 
   <div class="card-actions">

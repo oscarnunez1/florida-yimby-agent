@@ -75,11 +75,25 @@ def _source_type_map() -> dict[str, str]:
 
 def _brief_query_base() -> str:
     return """
-        SELECT b.*, rc.source, rc.captured_at, ei.priority, ei.event_type
+        SELECT b.*, rc.source, rc.captured_at, rc.og_image_url, rc.published_at,
+               ei.priority, ei.event_type
         FROM briefs b
         JOIN extracted_items ei ON ei.id = b.extracted_item_id
         JOIN raw_captures    rc ON rc.id = ei.raw_capture_id
     """
+
+
+def source_placeholder_color(source: str) -> str:
+    s = source.lower()
+    if "urban development" in s:
+        return "#7f1d1d"
+    if "planning" in s and ("zoning" in s or "appeals" in s):
+        return "#14532d"
+    if "historic" in s or "preservation" in s:
+        return "#4c1d95"
+    if "wynwood" in s:
+        return "#9a3412"
+    return "#1e3a5f"
 
 
 # ── Template context ──────────────────────────────────────────────────────────
@@ -87,8 +101,9 @@ def _brief_query_base() -> str:
 @app.context_processor
 def inject_globals():
     return {
-        "hearing_badge": hearing_badge,
-        "active_page":   None,       # overridden per-view via render_template kwarg
+        "hearing_badge":            hearing_badge,
+        "source_placeholder_color": source_placeholder_color,
+        "active_page":              None,
     }
 
 
@@ -96,20 +111,31 @@ def inject_globals():
 
 @app.route("/")
 def today():
+    from_date = request.args.get("from_date", "").strip()
+    to_date   = request.args.get("to_date",   "").strip()
+
+    effective_from = from_date or (date.today() - timedelta(days=7)).isoformat()
+    effective_to   = to_date   or date.today().isoformat()
+
     with get_conn() as conn:
         briefs = conn.execute(
             _brief_query_base() + """
             WHERE (
-                b.created_at >= datetime('now', '-24 hours')
+                (date(rc.captured_at) >= ? AND date(rc.captured_at) <= ?)
                 OR (b.hearing_date IS NOT NULL
+                    AND date(b.hearing_date) >= date('now')
                     AND date(b.hearing_date) <= date('now', '+7 days'))
             )
             AND b.status NOT IN ('dismissed')
             AND (b.snoozed_until IS NULL OR b.snoozed_until <= datetime('now'))
             ORDER BY ei.priority DESC, b.created_at DESC
-            """
+            """,
+            (effective_from, effective_to),
         ).fetchall()
-    return render_template("today.html", briefs=briefs, active_page="today")
+    return render_template(
+        "today.html", briefs=briefs, active_page="today",
+        from_date=effective_from, to_date=effective_to,
+    )
 
 
 # ── History ───────────────────────────────────────────────────────────────────

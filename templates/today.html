@@ -3,65 +3,106 @@
 {% block content %}
 <div class="page-heading">
   <h1>Today</h1>
-  <p class="subtitle">{{ briefs|length }} brief{{ 's' if briefs|length != 1 }} · last 24 hours + upcoming hearings</p>
+  <p class="subtitle">{{ briefs|length }} brief{{ 's' if briefs|length != 1 }} · {{ from_date }} to {{ to_date }}</p>
 </div>
+
+<!-- Date range filter -->
+<form class="today-filter" method="get" action="/">
+  <div class="filter-group">
+    <label>From</label>
+    <input type="date" name="from_date" value="{{ from_date }}">
+  </div>
+  <div class="filter-group">
+    <label>To</label>
+    <input type="date" name="to_date" value="{{ to_date }}">
+  </div>
+  <div class="filter-group" style="justify-content:flex-end">
+    <label>&nbsp;</label>
+    <button type="submit" class="btn btn-primary">Filter</button>
+  </div>
+</form>
 
 {% if not briefs %}
 <div class="empty">
   <div class="empty-icon">📭</div>
-  No new briefs in the last 24 hours.<br>
+  No briefs for this date range.<br>
   Run <code>python run_daily.py</code> to generate new ones.
 </div>
 {% endif %}
+
+{% set priority_tips = {
+  'high':   'Newly posted municipal agenda packet, or major approval/filing.',
+  'medium': 'Active development filing, permit, or construction update.',
+  'low':    'Background item, portfolio entry, or minor activity.'
+} %}
 
 {% for b in briefs %}
 {% set badge  = hearing_badge(b.hearing_date, b.hearing_board) %}
 {% set pkey   = {3:'high', 2:'medium', 1:'low'}.get(b.priority, 'low') %}
 {% set sclass = b.status if b.status in ('new','used','dismissed','snoozed') else 'new' %}
 {% set slabel = {'new':'New','used':'Used','dismissed':'Dismissed','snoozed':'Snoozed','pending':'New'}.get(b.status,'New') %}
-{% set score  = b.accuracy_score|int if b.accuracy_score else 0 %}
-{% set aclass = 'accuracy-num-high' if score >= 80 else ('accuracy-num-mid' if score >= 60 else ('accuracy-num-low' if score > 0 else 'accuracy-num-none')) %}
+{% set thumb_color = source_placeholder_color(b.source) %}
 
-<div class="card pri-{{ pkey }}" data-id="{{ b.id }}"
+<div class="card card-redesign pri-{{ pkey }}" data-id="{{ b.id }}"
      data-lede="{{ b.lede|e }}"
      data-body="{{ b.body|e }}">
 
   <div class="card-header">
-    <div class="card-meta">
-      <span class="badge badge-{{ pkey }}">{{ pkey|upper }}</span>
-      <span class="badge badge-{{ sclass }} status-badge">{{ slabel }}</span>
-      <span class="card-source">{{ b.source }} · {{ b.captured_at[:10] if b.captured_at else '—' }}</span>
+    <!-- Thumbnail or colored placeholder -->
+    <div class="card-thumb">
+      {% if b.og_image_url %}
+        <img src="{{ b.og_image_url }}" alt="" loading="lazy">
+      {% else %}
+        <div class="card-thumb-placeholder" style="background:{{ thumb_color }}"></div>
+      {% endif %}
     </div>
-    {% if badge %}
-      <div class="hearing-badge {{ 'past' if 'heard' in badge }}">
-        {{ '🕐' if 'heard' not in badge else '🕒' }} {{ badge }}
-      </div>
-    {% endif %}
-    <div class="card-headline">{{ b.headline }}</div>
-    <div class="accuracy">
-      Accuracy:&nbsp;<span class="{{ aclass }}"><strong>{{ score if score else '—' }}</strong>{% if score %}/100{% endif %}</span>
-    </div>
-  </div>
 
-  <div class="card-actions">
-    <button class="btn btn-primary"
-            onclick="event.stopPropagation();this.closest('.card').querySelector('.card-body').classList.toggle('open');this.closest('.card').classList.toggle('expanded')">
-      Open
-    </button>
-    <button class="btn btn-success" onclick="event.stopPropagation();cardAction({{ b.id }}, 'use')">Mark used</button>
-    <button class="btn" onclick="event.stopPropagation();toggleDismiss({{ b.id }})">Dismiss ▾</button>
-    <button class="btn" onclick="event.stopPropagation();cardAction({{ b.id }}, 'snooze')">Snooze 24h</button>
-    <div class="dismiss-form" data-id="{{ b.id }}">
-      <select>
-        <option value="not_relevant">Not relevant</option>
-        <option value="already_covered">Already covered</option>
-        <option value="wrong_market">Wrong market</option>
-        <option value="low_priority">Low priority</option>
-        <option value="duplicate">Duplicate</option>
-        <option value="other">Other</option>
-      </select>
-      <button class="btn btn-danger" onclick="submitDismiss({{ b.id }})">Confirm</button>
-      <button class="btn" onclick="toggleDismiss({{ b.id }})">Cancel</button>
+    <!-- Content -->
+    <div class="card-content">
+      <div class="card-meta-row">
+        <div class="card-meta">
+          <span class="badge badge-{{ pkey }}">
+            {{ pkey|upper }}
+            <span class="priority-help" title="{{ priority_tips[pkey] }}">
+              (?)
+              <span class="priority-tooltip-text">{{ priority_tips[pkey] }}</span>
+            </span>
+          </span>
+          <span class="badge badge-{{ sclass }} status-badge">{{ slabel }}</span>
+          <span class="card-source">{{ b.source }}</span>
+        </div>
+
+        <!-- Three-dot menu -->
+        <div class="dot-menu" data-id="{{ b.id }}">
+          <button class="dot-menu-btn" onclick="toggleDotMenu(event, {{ b.id }})" aria-label="Actions">⋯</button>
+          <div class="dot-menu-dropdown" id="dot-{{ b.id }}" hidden>
+            <button class="dot-item" onclick="dotAction({{ b.id }}, 'use')">Mark as used</button>
+            <button class="dot-item" onclick="toggleDismissSub(event, {{ b.id }})">Dismiss ›</button>
+            <div class="dot-sub" id="dot-sub-{{ b.id }}" hidden>
+              <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'not_relevant')">Not relevant</button>
+              <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'already_covered')">Already covered</button>
+              <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'wrong_market')">Wrong market</button>
+              <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'low_priority')">Low priority</button>
+              <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'duplicate')">Duplicate</button>
+              <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'other')">Other</button>
+            </div>
+            <button class="dot-item" onclick="dotAction({{ b.id }}, 'snooze')">Snooze 24h</button>
+          </div>
+        </div>
+      </div>
+
+      {% if badge %}
+        <div class="hearing-badge {{ 'past' if 'heard' in badge }}">
+          {{ '🕐' if 'heard' not in badge else '🕒' }} {{ badge }}
+        </div>
+      {% endif %}
+
+      <div class="card-headline">{{ b.headline }}</div>
+
+      <div class="card-dates">
+        <span>Published: {{ b.published_at[:10] if b.published_at else 'unknown' }}</span>
+        <span>Captured: {{ b.captured_at[:10] if b.captured_at else '—' }}</span>
+      </div>
     </div>
   </div>
 

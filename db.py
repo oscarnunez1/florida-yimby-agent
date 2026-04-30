@@ -98,6 +98,8 @@ def init_db() -> None:
             ("extracted_items", "already_covered",      "INTEGER NOT NULL DEFAULT 0"),
             ("extracted_items", "coverage_match_url",   "TEXT"),
             ("raw_captures",    "metadata_json",        "TEXT"),
+            ("raw_captures",    "og_image_url",         "TEXT"),
+            ("raw_captures",    "published_at",         "TEXT"),
             ("briefs",          "hearing_date",         "TEXT"),
             ("briefs",          "hearing_board",        "TEXT"),
             ("briefs",          "confirmed_vs_pending", "TEXT"),
