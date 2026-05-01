@@ -1,0 +1,570 @@
+# Florida YIMBY Intel
+
+A personal research agent that monitors Florida real estate development news, municipal hearing agendas, and architect project portfolios, then drafts publication-ready editorial briefs for a journalist who covers the Florida development beat. Instead of spending an hour each morning scanning feeds and board calendars, the journalist opens a dashboard, reviews pre-written briefs filtered to their coverage area, and either sends them to WordPress or dismisses them. The agent runs automatically every morning at 10 AM and costs roughly a dollar a day to operate.
+
+---
+
+## What It Does
+
+### Full pipeline
+
+```
+Sources → Scraper → raw_captures → Classifier → extracted_items → Dedup → Briefs → Dashboard
+```
+
+**1. Scrape** (`scrape.py`)
+Pulls new items from every configured source. RSS feeds are fetched via feedparser; HTML pages are scraped with CSS selectors; WordPress REST API endpoints are queried for project portfolios; IQM2 government calendar pages are polled for upcoming board meetings and newly posted agenda packets. New items land in `raw_captures`. Deduplication is by URL — already-seen items are silently skipped. For RSS items, an OG image is fetched from each article page and stored alongside the capture. Floridian Development images are downloaded and embedded as base64 data URLs because that site blocks hotlinking.
+
+**2. Classify** (`process.py classify`)
+Every unprocessed capture is sent to Claude Haiku with a structured prompt. Haiku decides: Is this a Florida development item? How newsworthy is it (high / medium / low)? It extracts whatever structured fields it can find — project name, address, city, developer, architect, unit count, height, status, event type. Items flagged as newly-posted agenda packets are automatically promoted to high priority. Results go into `extracted_items` with a `market` (city), `county`, and `region` value derived from the city field.
+
+**3. Dedup** (`process.py dedup`)
+Every extracted Florida development item is fuzzy-matched against the coverage index — a catalogue of every article published on floridayimby.com. Matching uses token sort ratio on project names (threshold: 85) with an address confirmation step. If the journalist has already written about a project, the item is flagged `already_covered = 1` and excluded from brief generation.
+
+**4. Draft briefs** (`process.py draft-briefs`)
+For each uncovered FL development item, Claude Opus drafts an 8-section research brief in the publication's editorial voice: Headline, Lede, Body, Fact Sheet, Sources, Confirmed vs Pending, Open Questions (with a recommended next step), and an Accuracy Score. Briefs are written to be publication-ready: fact-dense, zero promotional language, no speculation beyond what the source states.
+
+**5. Dashboard** (`dashboard.py`)
+A Flask web app on `localhost:5000`. The journalist opens it, reads the Inbox (today's unread briefs), dismisses irrelevant ones, marks used ones, and copies the WordPress HTML for briefs they want to publish.
+
+---
+
+## Architecture
+
+```
+sources.yaml
+    │
+    ▼
+scrape.py ──────────────────────────────────────────────────────────────────┐
+│  RSS feeds (feedparser)                                                    │
+│  HTML scrapers (selectolax)                                                │
+│  WordPress REST API (httpx)                                                │
+│  IQM2 calendar + agenda PDF (httpx + Haiku PDF extraction)                 │
+    │
+    ▼
+raw_captures  (SQLite)
+    │
+    ▼
+process.py classify  (Claude Haiku 4.5)
+    │  Structured JSON extraction per item
+    │  City → county → region detection
+    ▼
+extracted_items  (SQLite)
+    │
+    ├──► process.py dedup  (rapidfuzz fuzzy match)
+    │        │
+    │        ▼
+    │    coverage_index  (floridayimby.com archive, 2,897 articles)
+    │        │
+    │        └──► already_covered flag set on extracted_items
+    │
+    ▼
+process.py draft-briefs  (Claude Opus 4.5)
+    │
+    ▼
+briefs  (SQLite)
+    │
+    ▼
+dashboard.py  (Flask + Jinja2)
+    │
+    ├── /inbox    — unread briefs, cascading geo filters
+    ├── /archive  — all briefs, paginated, full filter bar
+    ├── /briefs/<id>  — full brief detail + WordPress copy
+    ├── /sources  — source health table
+    ├── /coverage — coverage index search
+    └── /logs     — pipeline run history
+```
+
+---
+
+## Source Inventory
+
+### RSS feeds
+| Source | URL | Notes |
+|---|---|---|
+| The Real Deal Miami | therealdeal.com/miami/feed/ | Miami-only real estate news |
+| Floridian Development | floridiandevelopment.com/feed/ | Florida construction + development |
+| Commercial Observer | commercialobserver.com/feed/ | National CRE, filtered for FL |
+| Construction Dive | constructiondive.com/feeds/news/ | National construction, filtered for FL |
+| Bisnow | bisnow.com/rss/ | Global CRE feed, filtered for FL relevance during classification |
+
+### HTML scrapers
+| Source | URL | Selector |
+|---|---|---|
+| Arquitectonica Projects | arquitectonica.com/architecture/projects/ | `.project` items |
+
+### WordPress REST API
+| Source | URL | Notes |
+|---|---|---|
+| Kobi Karp Projects | kobikarp.com/wp-json/wp/v2/projects | Architect project portfolio |
+
+### IQM2 municipal boards
+| Source | Board | Lookahead |
+|---|---|---|
+| Miami Urban Development Review Board | Urban Development Review Board | 60 days |
+| Miami Planning Zoning and Appeals Board | Planning, Zoning and Appeals Board | 60 days |
+| Miami Historic and Environmental Preservation Board | Historic and Environmental Preservation Board | 60 days |
+| Wynwood Design Review Committee | Wynwood Design Review Committee | 60 days |
+
+All four boards use `miamifl.iqm2.com`. The scraper polls each board's calendar, detects newly posted agenda PDFs, extracts individual project listings from the PDF via Haiku, and creates one `raw_capture` per project line item.
+
+---
+
+## Tech Stack
+
+- **Python 3.9.6**
+- **httpx** — HTTP client for all web requests (RSS, HTML, WP REST, IQM2, OG images)
+- **feedparser** — RSS/Atom feed parsing
+- **selectolax** — fast HTML parsing with CSS selectors
+- **flask** — web framework for the dashboard
+- **python-dotenv** — `.env` file loading
+- **pyyaml** — `sources.yaml` parsing
+- **rapidfuzz** — fuzzy string matching for deduplication
+- **apscheduler** — used by the cron shell wrapper
+- **anthropic** — Anthropic Python SDK
+- **SQLite** with WAL mode — single-file database, concurrent read-safe
+- **Claude Haiku 4.5** — classification, agenda PDF extraction, coverage index ingestion
+- **Claude Opus 4.5** — brief drafting (8-section editorial briefs)
+
+---
+
+## Project Structure
+
+```
+florida-yimby-agent/
+├── scrape.py              # All source scrapers: RSS, HTML, WP REST, IQM2
+├── process.py             # Classification, dedup, brief drafting, market detection
+├── dashboard.py           # Flask app: all routes, filter logic, template context
+├── db.py                  # SQLite schema, migrations, connection helper
+├── utils.py               # Shared helpers (strip markdown fences)
+├── run_daily.py           # Pipeline orchestrator: runs all 4 steps in sequence
+├── run_daily.sh           # Bash wrapper: activates venv, writes dated log file
+├── backfill_og_images.py  # One-shot: backfill OG images for existing RSS captures
+├── sources.yaml           # All monitored sources with selectors and config
+├── style_guide.md         # Editorial voice reference (placeholder)
+├── requirements.txt       # Python dependencies
+├── .env.example           # Environment variable template
+├── prompts/
+│   ├── classify.md        # Haiku system prompt: classify + extract structured fields
+│   ├── draft_brief.md     # Opus system prompt: write 8-section editorial brief
+│   ├── extract_agenda.md  # Haiku system prompt: extract projects from agenda PDFs
+│   ├── ingest_archive.md  # Haiku system prompt: extract fields from published articles
+│   └── extract.md        # Stub (not yet wired up)
+├── templates/
+│   ├── base.html          # Layout, CSS design system, sidebar nav, JS utilities
+│   ├── inbox.html         # Today's unread briefs with cascading geo filter bar
+│   ├── archive.html       # All briefs, paginated, full filter bar
+│   ├── brief_detail.html  # Single brief: all sections + WordPress copy button
+│   ├── sources.html       # Source health table
+│   ├── coverage.html      # Coverage index search
+│   └── logs.html          # Run history table + latest log file viewer
+├── logs/                  # Daily log files (daily_YYYY-MM-DD.log), gitignored
+├── db.sqlite              # SQLite database, gitignored
+└── runs.log               # Legacy log file
+```
+
+---
+
+## Setup
+
+### 1. Clone the repository
+
+```bash
+git clone <repo-url>
+cd florida-yimby-agent
+```
+
+### 2. Create a virtual environment
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+### 3. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Set up environment variables
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and add your Anthropic API key:
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+### 5. Initialize the database
+
+```bash
+python db.py
+```
+
+This creates `db.sqlite` with all tables and indexes. Safe to re-run — all migrations are idempotent.
+
+### 6. Run the first scrape
+
+```bash
+python run_daily.py
+```
+
+This runs all four pipeline steps: scrape → classify → dedup → draft-briefs. On the first run, the coverage index is empty so nothing will be flagged as already covered. It takes 5–15 minutes depending on how many new items the AI needs to process.
+
+### 7. (Optional) Backfill the coverage index
+
+The dedup step compares against `coverage_index`, which starts empty. To populate it with the full floridayimby.com archive:
+
+```bash
+python process.py ingest-coverage
+```
+
+This fetches all ~2,900 published articles via the WordPress REST API and sends each one to Haiku to extract project name, address, developer, and architect. Costs roughly $2.50 and takes 20–30 minutes. Only needs to be done once; subsequent runs only fetch new articles.
+
+### 8. Start the dashboard
+
+```bash
+python dashboard.py
+```
+
+Open `http://localhost:5000/inbox` in a browser.
+
+---
+
+## Daily Operations
+
+### Automatic schedule
+
+The pipeline runs automatically at **10:00 AM every day** via cron:
+
+```
+0 10 * * * /Users/oscarnunez/florida-yimby-agent/run_daily.sh
+```
+
+`run_daily.sh` activates the virtual environment, runs `run_daily.py`, and appends all output to `logs/daily_YYYY-MM-DD.log`. The cron job requires the laptop to be awake at 10 AM.
+
+To install the cron job on a new machine:
+
+```bash
+crontab -e
+# Add: 0 10 * * * /path/to/florida-yimby-agent/run_daily.sh
+```
+
+### Running manually
+
+```bash
+# Full pipeline
+python run_daily.py
+
+# Individual steps
+python scrape.py                        # scrape all sources
+python scrape.py --rss-only             # RSS only
+python process.py classify              # classify new captures
+python process.py classify --limit 5    # classify at most 5 (for testing)
+python process.py classify --dry-run    # classify without writing to DB
+python process.py dedup                 # update already_covered flags
+python process.py draft-briefs          # generate briefs
+python process.py draft-briefs --limit 3
+python process.py update-markets        # re-detect city/county/region for all items
+python process.py status                # show DB counts
+```
+
+### Checking logs
+
+Dashboard Logs page at `/logs` shows the last 30 run records and the last 100 lines of today's log file.
+
+Command line:
+
+```bash
+tail -f logs/daily_$(date +%Y-%m-%d).log   # follow today's log
+ls -lt logs/                                # list all log files
+```
+
+The `daily_log` table in the database stores run date, new captures count, new briefs count, duration, and any errors per run.
+
+---
+
+## Dashboard Guide
+
+### Inbox (`/inbox`)
+
+Shows unread briefs (status = new or pending, not snoozed past their wake time) captured in the last 7 days by default. The filter bar lets you narrow by:
+
+- **Region** → **County** → **City** — cascading geo dropdowns. Changing Region filters the County options; changing County filters the City options. All client-side, no extra server round-trips.
+- **Date** — presets: Today, Last 7 days, Last 30 days, Last 90 days, All Time.
+- **Source** — News (RSS + HTML + WP REST) or Municipal (IQM2 boards).
+- **Status** — Unread (default), All, Used, Snoozed, Dismissed.
+- **⚡ Upcoming hearings** — toggle to show only briefs with a board hearing in the next 14 days.
+
+Active filters appear as removable chips below the filter bar. Click × on a chip to remove that one filter. "Clear all" resets everything.
+
+The sidebar shows an unread count badge next to Inbox.
+
+### Archive (`/archive`)
+
+All briefs ever created, paginated 25 per page, with the same filter bar (status defaults to All). Useful for finding a specific brief, checking what was covered in a past date range, or reviewing dismissed items.
+
+### Sources (`/sources`)
+
+A health table for every configured source. Shows last captured date, total item count, items in the last 7 days, and a green/red status dot. A source goes stale if it hasn't produced any captures in the past 3 days.
+
+### Coverage Index (`/coverage`)
+
+The deduplication catalogue: 2,897 published Florida YIMBY articles with extracted project name, address, developer, and architect. Searchable by project name or address. When a new brief's project matches an entry here, it's automatically marked `already_covered` and excluded from the Inbox.
+
+### Logs (`/logs`)
+
+Run history table (last 30 runs) with new captures, new briefs, duration, and error details. Also shows the last 100 lines of the most recent daily log file in a dark monospace viewer.
+
+### Three-dot menu
+
+Every card has a `⋯` button in the top-right corner. Options:
+
+- **Mark as used** — moves the brief to used status and removes it from Inbox.
+- **Snooze 24h** — hides the brief until the same time tomorrow.
+- **Dismiss** — marks the brief dismissed with a reason: Not relevant, Already covered, Wrong market, Low priority, Duplicate, or Other.
+
+All three actions show an **Undo** toast at the bottom of the screen. The toast stays for 5 seconds with a countdown bar. Clicking Undo calls the `/briefs/<id>/undo` endpoint and re-inserts the card at its original position.
+
+### Card navigation
+
+Clicking anywhere on a card (outside the three-dot menu) navigates to the full brief detail page. Browsers that support the View Transitions API (Chrome 111+, Safari 18+) get a shared-element morph animation — the card expands into the detail view. The back button returns to the previous page with the same animation in reverse.
+
+### Brief detail page
+
+Shows all 8 sections of the brief: Headline, Lede, Body, Fact Sheet, Sources, Confirmed vs Pending, Open Questions, Accuracy Score. The **Copy as WordPress HTML** button copies `<h2>` + `<p>` formatted output to the clipboard.
+
+---
+
+## Adding New Sources
+
+### New RSS feed
+
+Add an entry under `rss:` in `sources.yaml`:
+
+```yaml
+rss:
+  - name: Source Display Name
+    url: https://example.com/feed/
+    tags: [florida, development]
+```
+
+The `name` field becomes the `source` value in `raw_captures`. Tags are metadata only — not used by the pipeline. Run `python scrape.py --rss-only` to test.
+
+### New IQM2 board
+
+Add an entry under `iqm2:` in `sources.yaml`:
+
+```yaml
+iqm2:
+  - name: City of Example – Planning Board
+    url: https://example.iqm2.com/Citizens/Calendar.aspx?cat=12
+    board: Planning Board
+    lookahead_days: 60
+```
+
+The `board` value must match the exact board name as it appears in the IQM2 HTML row — the scraper uses it to filter which calendar rows to process. The `lookahead_days` field controls how far ahead to look for upcoming meetings. The default IQM2 selectors work for all standard `*.iqm2.com` installs; use the optional selector overrides if a municipality has customized its layout (documented in `sources.yaml` comments).
+
+### New WordPress REST source
+
+Add an entry under `wp_rest:` in `sources.yaml`:
+
+```yaml
+wp_rest:
+  - name: Source Display Name
+    url: https://example.com/wp-json/wp/v2/custom-post-type
+    per_page: 100
+```
+
+The scraper fetches `?per_page=N` and inserts each item's `title.rendered` + `link`. Use the WordPress REST API browser at `/wp-json/wp/v2/` to find the correct post type endpoint.
+
+### New HTML scraper
+
+Add an entry under `html_scrape:` in `sources.yaml`:
+
+```yaml
+html_scrape:
+  - name: Source Display Name
+    url: https://example.com/projects/
+    category: developer
+    item_selector: ".project-card"
+    title_selector: "h3"
+    link_selector: "a.project-link"
+```
+
+If the page is JavaScript-rendered (items only appear after JS executes), add `js_rendered: true` — the scraper will log a warning and skip it. JS-rendered sources require Playwright and are deferred to v2.
+
+---
+
+## Prompt Files
+
+### `prompts/classify.md`
+
+System prompt for Claude Haiku 4.5. Receives the title and content of each raw capture and returns a JSON object with: `is_development_item`, `florida_relevance`, `project_name`, `address`, `city`, `developer`, `architect`, `units`, `height_ft`, `status`, `event_type`, `priority`, and a `reasoning` field. Includes detailed rules for what qualifies as a Florida development item (land deals, construction loans, rezoning applications, etc.) and what does not (resales, market analysis, corporate news). Priority thresholds: high = new project filing, major approval, or groundbreaking; medium = amendment or update; low = non-Florida or tangential mention.
+
+### `prompts/draft_brief.md`
+
+System prompt for Claude Opus 4.5. Receives structured fields from `extracted_items` plus the source content and writes a full 8-section research brief. Voice rules enforce the publication's style: lead with the observable fact, present tense for current status, no adjectives that aren't measurements, no enabling phrases ("clears the way," "paves the way"), cite specific numbers. The Accuracy Score section requires Opus to self-assess factual confidence on four dimensions. For IQM2 items, the lede must include board name, hearing date, and application number.
+
+### `prompts/extract_agenda.md`
+
+System prompt for Haiku's PDF document API. Receives a municipal board meeting agenda as a PDF and returns a JSON array of individual project listings — one object per development item with agenda item number, project name, address, developer, architect, and description. Procedural items (approval of minutes, roll call, public comment) are filtered out.
+
+### `prompts/ingest_archive.md`
+
+System prompt for coverage index ingestion. Receives the title and body of a published Florida YIMBY article and extracts: `project_name`, `address`, `developer`, `architect`. Used by `process.py ingest-coverage` to build the deduplication catalogue from the site archive.
+
+---
+
+## Database Schema
+
+### `raw_captures`
+The raw intake table. One row per unique URL.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER | Primary key |
+| `source` | TEXT | Display name from `sources.yaml` |
+| `url` | TEXT | Unique constraint — dedup happens here |
+| `title` | TEXT | Article headline or project name |
+| `content` | TEXT | Article body or project description |
+| `captured_at` | TEXT | ISO datetime, defaults to now |
+| `published_at` | TEXT | ISO date parsed from RSS feed |
+| `processed` | INTEGER | 0 = not yet classified |
+| `og_image_url` | TEXT | OG/Twitter card image URL or base64 data URL |
+| `metadata_json` | TEXT | IQM2 hearing metadata: hearing_date, hearing_board, agenda_url, agenda_newly_posted |
+
+### `extracted_items`
+One row per classified item. Only FL development items flow into briefs.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER | Primary key |
+| `raw_capture_id` | INTEGER | FK → raw_captures |
+| `project_name` | TEXT | Extracted by Haiku |
+| `address` | TEXT | |
+| `city` | TEXT | As stated in source text |
+| `developer` | TEXT | |
+| `architect` | TEXT | |
+| `units` | INTEGER | Residential unit count |
+| `height` | TEXT | Height in feet |
+| `status` | TEXT | proposed / filed / approved / permitted / under_construction / topped_off / completed / unknown |
+| `event_type` | TEXT | new_filing / approval / construction_milestone / amendment / completion / profile / other |
+| `priority` | INTEGER | 3=high, 2=medium, 1=low |
+| `is_development_item` | INTEGER | 0/1 |
+| `florida_relevance` | INTEGER | 0/1 |
+| `extracted_data_json` | TEXT | Full Haiku JSON output |
+| `already_covered` | INTEGER | 0/1 — set by dedup step |
+| `coverage_match_url` | TEXT | URL of matched published article |
+| `market` | TEXT | City-level market: MIAMI, MIRAMAR, BOCA RATON, etc. |
+| `county` | TEXT | Miami-Dade, Broward, Palm Beach, Hillsborough, etc. |
+| `region` | TEXT | South Florida, Tampa Bay, Orlando Metro |
+
+### `briefs`
+One row per drafted brief.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER | Primary key |
+| `extracted_item_id` | INTEGER | FK → extracted_items |
+| `headline` | TEXT | 8–12 word declarative sentence |
+| `lede` | TEXT | 3–5 sentence paragraph |
+| `body` | TEXT | 2–3 paragraphs |
+| `fact_sheet_json` | TEXT | Bullet list of hard numbers |
+| `sources` | TEXT | Newline-separated URLs |
+| `confirmed_vs_pending` | TEXT | Two sub-lists |
+| `open_questions` | TEXT | Missing facts + recommended next step |
+| `accuracy_score` | REAL | 0–100 self-assessment by Opus |
+| `status` | TEXT | new / used / dismissed / snoozed / pending |
+| `created_at` | TEXT | ISO datetime |
+| `hearing_date` | TEXT | ISO date from IQM2 metadata |
+| `hearing_board` | TEXT | Board name from IQM2 metadata |
+| `snoozed_until` | TEXT | ISO datetime when snooze expires |
+| `dismiss_reason` | TEXT | not_relevant / already_covered / wrong_market / low_priority / duplicate / other |
+
+### `coverage_index`
+Catalogue of published articles used for deduplication.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER | Primary key |
+| `project_name` | TEXT | Extracted by Haiku |
+| `address` | TEXT | |
+| `developer` | TEXT | |
+| `architect` | TEXT | |
+| `article_url` | TEXT | Unique — the canonical published URL |
+| `published_at` | TEXT | ISO date |
+
+### `meetings`
+State tracking for IQM2 board meeting calendar entries.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER | Primary key |
+| `source` | TEXT | Source name from sources.yaml |
+| `meeting_url` | TEXT | Unique — IQM2 meeting detail URL |
+| `board` | TEXT | Board name |
+| `meeting_date` | TEXT | ISO date |
+| `agenda_url` | TEXT | Full agenda packet URL (Type=1) |
+| `first_seen_at` | TEXT | When the meeting was first discovered |
+| `agenda_posted_at` | TEXT | When the agenda URL first appeared |
+
+### `daily_log`
+One row per pipeline run.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER | Primary key |
+| `run_date` | TEXT | ISO date |
+| `new_captures` | INTEGER | Items added to raw_captures |
+| `new_briefs` | INTEGER | Briefs generated |
+| `errors_json` | TEXT | JSON object of step→error for any failures |
+| `duration_seconds` | REAL | Wall-clock time for the full run |
+
+---
+
+## Cost Estimates
+
+All estimates assume Claude Haiku 4.5 at $0.80/M input + $4.00/M output tokens and Claude Opus 4.5 at $15.00/M input + $75.00/M output tokens. Prompt caching (active on both Haiku and Opus system prompts) reduces repeated system prompt costs significantly.
+
+### Daily steady-state (approximate)
+
+| Step | Model | Typical calls/day | Estimated cost |
+|---|---|---|---|
+| Classification | Haiku | ~10 new items | ~$0.02 |
+| Agenda extraction | Haiku | 0–2 per new agenda | ~$0.05 |
+| Brief drafting | Opus | ~3 briefs | ~$0.30 |
+| **Total** | | | **~$0.40/day** |
+
+On heavy news days (multiple IQM2 agendas + several major stories), the daily cost can reach $1–2. Most days it is under $0.50.
+
+### One-time setup costs
+
+| Task | Model | Notes | Cost |
+|---|---|---|---|
+| Coverage index backfill | Haiku | 2,897 articles, ~600 tokens each | ~$2.50 |
+
+---
+
+## Known Limitations
+
+- **JavaScript-rendered sources** cannot be scraped without Playwright. The Melo Group projects page is in `html_scrape_deferred` for this reason. iBuild (Miami-Dade permit portal) and EnerGov (Miami-Dade pre-application portal) are also JavaScript-rendered.
+- **Coverage index scope**: The dedup catalogue is based on the full floridayimby.com archive, not just Oscar's byline — this is intentional but means it may suppress items covered by other staff writers that Oscar might want to cover independently.
+- **Cron requires the laptop to be awake** at 10 AM. If the machine is asleep, the pipeline skips that day. Migration to a VPS would eliminate this.
+- **IQM2 boards**: Currently tracking only Miami boards on `miamifl.iqm2.com`. Tampa, St. Pete, Coral Gables, and Pompano Beach use Legistar, not IQM2, and require a separate scraper.
+- **Classified but not extracted**: Items where Haiku detects `florida_relevance=true` and `is_development_item=true` but cannot extract any structured fields will have null values throughout. These still get briefs drafted; the brief will have weaker fact sheets.
+- **No real-time alerts**: The pipeline runs once a day. Breaking news between runs is not captured until the next morning.
+
+---
+
+## Roadmap
+
+- **Legistar scraper** — Tampa City Council, St. Petersburg City Council, Coral Gables City Commission, and Pompano Beach Planning and Zoning Board all use Legistar. The scraper structure will mirror the IQM2 integration: detect newly posted agendas, extract project items, create captures.
+- **EnerGov pre-application scraper** — Miami-Dade's pre-application portal (MiamiDade.gov/building) shows projects before any formal filing. Requires Playwright for JavaScript rendering.
+- **Fort Lauderdale DRC** — The Fort Lauderdale Development Review Committee has no IQM2 or Legistar — it publishes meeting packets as PDFs directly on the city website. A targeted scraper with direct PDF monitoring is planned.
+- **Event and asset type classification** — Add dedicated fields for `asset_type` (residential, office, hotel, retail, mixed-use, industrial) and `event_type` refinement to enable better inbox filtering without relying on text search.
+- **VPS deployment** — Move the cron job to a Linux VPS for 24/7 operation, add a daily digest email, and expose the dashboard on a private URL rather than localhost.
