@@ -196,17 +196,9 @@ def _apply_common_filters(where: list, params: list, filters: dict) -> None:
             where.append("date(rc.captured_at) <= ?")
             params.append(date_to)
 
-    if filters.get("source_type"):
-        cfg = _load_sources_config()
-        if filters["source_type"] == "municipal":
-            src_names = cfg.get("iqm2", [])
-        else:
-            src_names = cfg.get("rss", []) + cfg.get("html_scrape", []) + cfg.get("wp_rest", [])
-        if src_names:
-            where.append(f"rc.source IN ({','.join('?' * len(src_names))})")
-            params.extend(src_names)
-        else:
-            where.append("1=0")
+    if filters.get("source"):
+        where.append("rc.source = ?")
+        params.append(filters["source"])
 
     if filters.get("hearings") == "1":
         where.append(
@@ -253,9 +245,8 @@ def _active_chips(path: str, filters: dict, default_status: str) -> list[dict]:
         else:
             chips.append({"label": _DATE_LABELS.get(filters["date"], filters["date"]),
                           "href": url_without("date")})
-    if filters.get("source_type"):
-        chips.append({"label": _SOURCE_LABELS.get(filters["source_type"], filters["source_type"]),
-                      "href": url_without("source_type")})
+    if filters.get("source"):
+        chips.append({"label": filters["source"], "href": url_without("source")})
     status = filters.get("status", "")
     if status and status != default_status:
         chips.append({"label": _STATUS_LABELS.get(status, status),
@@ -311,15 +302,15 @@ def inject_globals():
 @app.route("/inbox")
 def inbox():
     filters = {
-        "region":      request.args.get("region",      "").strip(),
-        "county":      request.args.get("county",      "").strip(),
-        "city":        request.args.get("city",        "").strip(),
-        "date":        request.args.get("date",        "last_7").strip(),
-        "from_date":   request.args.get("from_date",   "").strip(),
-        "to_date":     request.args.get("to_date",     "").strip(),
-        "source_type": request.args.get("source_type", "").strip(),
-        "status":      request.args.get("status",      "").strip(),
-        "hearings":    request.args.get("hearings",    "").strip(),
+        "region":   request.args.get("region",   "").strip(),
+        "county":   request.args.get("county",   "").strip(),
+        "city":     request.args.get("city",     "").strip(),
+        "date":     request.args.get("date",     "last_7").strip(),
+        "from_date":request.args.get("from_date","").strip(),
+        "to_date":  request.args.get("to_date",  "").strip(),
+        "source":   request.args.get("source",   "").strip(),
+        "status":   request.args.get("status",   "").strip(),
+        "hearings": request.args.get("hearings", "").strip(),
     }
 
     where: list = []
@@ -354,6 +345,12 @@ def inbox():
             """,
             params,
         ).fetchall()
+        all_sources = [r[0] for r in conn.execute(
+            "SELECT DISTINCT rc.source FROM briefs b"
+            " JOIN extracted_items ei ON b.extracted_item_id = ei.id"
+            " JOIN raw_captures rc ON ei.raw_capture_id = rc.id"
+            " ORDER BY rc.source"
+        ).fetchall()]
 
     all_counties, all_cities = _geo_lookups()
     active_filters = _active_chips("/inbox", filters, default_status="")
@@ -365,6 +362,7 @@ def inbox():
         active_filters=active_filters,
         all_counties=all_counties,
         all_cities=all_cities,
+        all_sources=all_sources,
         geo_json=_geo_json_for_template(all_counties, all_cities),
         market_counts=Counter(b["market"] or "FLORIDA" for b in briefs),
         active_page="inbox",
@@ -382,18 +380,18 @@ def history_redirect():
 def archive():
     page = max(1, request.args.get("page", 1, int))
     filters = {
-        "region":      request.args.get("region",      "").strip(),
-        "county":      request.args.get("county",      "").strip(),
-        "city":        request.args.get("city",        "").strip(),
-        "date":        request.args.get("date",        "").strip(),
-        "from_date":   request.args.get("from_date",   "").strip(),
-        "to_date":     request.args.get("to_date",     "").strip(),
-        "source_type": request.args.get("source_type", "").strip(),
-        "status":      request.args.get("status",      "").strip(),
-        "hearings":    request.args.get("hearings",    "").strip(),
+        "region":   request.args.get("region",   "").strip(),
+        "county":   request.args.get("county",   "").strip(),
+        "city":     request.args.get("city",     "").strip(),
+        "date":     request.args.get("date",     "").strip(),
+        "from_date":request.args.get("from_date","").strip(),
+        "to_date":  request.args.get("to_date",  "").strip(),
+        "source":   request.args.get("source",   "").strip(),
+        "status":   request.args.get("status",   "").strip(),
+        "hearings": request.args.get("hearings", "").strip(),
         # legacy params kept for pagination URL building
-        "board":       request.args.get("board",       "").strip(),
-        "priority":    request.args.get("priority",    "").strip(),
+        "board":    request.args.get("board",    "").strip(),
+        "priority": request.args.get("priority", "").strip(),
     }
 
     where: list = []
@@ -435,6 +433,12 @@ def archive():
             _brief_query_base() + f"{where_sql} ORDER BY b.created_at DESC LIMIT ? OFFSET ?",
             params + [PER_PAGE, offset],
         ).fetchall()
+        all_sources = [r[0] for r in conn.execute(
+            "SELECT DISTINCT rc.source FROM briefs b"
+            " JOIN extracted_items ei ON b.extracted_item_id = ei.id"
+            " JOIN raw_captures rc ON ei.raw_capture_id = rc.id"
+            " ORDER BY rc.source"
+        ).fetchall()]
 
     all_counties, all_cities = _geo_lookups()
     active_filters = _active_chips("/archive", filters, default_status="")
@@ -448,6 +452,7 @@ def archive():
         active_filters=active_filters,
         all_counties=all_counties,
         all_cities=all_cities,
+        all_sources=all_sources,
         geo_json=_geo_json_for_template(all_counties, all_cities),
         active_page="archive",
     )

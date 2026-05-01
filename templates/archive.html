@@ -3,7 +3,10 @@
 
 {% block content %}
 <div class="page-heading">
-  <h1>Archive</h1>
+  <div style="display:flex; align-items:center; gap:12px;">
+    <h1 style="margin:0;">Archive</h1>
+    <button class="refresh-btn" aria-label="Refresh briefs">↻</button>
+  </div>
   <p class="subtitle">{{ total }} brief{{ 's' if total != 1 }}</p>
 </div>
 
@@ -50,10 +53,11 @@
   </div>
 
   <!-- Source -->
-  <select name="source_type" onchange="this.form.submit()">
-    <option value=""          {{ 'selected' if filters.source_type == '' }}>All Sources</option>
-    <option value="news"      {{ 'selected' if filters.source_type == 'news' }}>News</option>
-    <option value="municipal" {{ 'selected' if filters.source_type == 'municipal' }}>Municipal</option>
+  <select name="source" onchange="this.form.submit()">
+    <option value="">All Sources</option>
+    {% for s in all_sources %}
+      <option value="{{ s }}" {{ 'selected' if filters.source == s }}>{{ s }}</option>
+    {% endfor %}
   </select>
 
   <!-- Status -->
@@ -279,6 +283,32 @@
 .filter-chip-clear:hover {
   background: var(--border-light);
 }
+.refresh-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border-medium);
+  background: white;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  transition: all 0.15s;
+}
+.refresh-btn:hover {
+  background: var(--accent-light);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.refresh-btn.spinning {
+  animation: spin 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
 </style>
 <script>
 var GEO = {{ geo_json|safe }};
@@ -340,5 +370,10 @@ function checkCustomSubmit() {
 
 document.getElementById('from-date').addEventListener('change', checkCustomSubmit);
 document.getElementById('to-date').addEventListener('change', checkCustomSubmit);
+
+document.querySelector('.refresh-btn').addEventListener('click', function() {
+  this.classList.add('spinning');
+  setTimeout(function() { location.reload(); }, 500);
+});
 </script>
 {% endblock %}
