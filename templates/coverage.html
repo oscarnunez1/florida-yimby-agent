@@ -1,48 +1,74 @@
 {% extends "base.html" %}
-{% block title %}Coverage Index — FL YIMBY{% endblock %}
+{% block title %}Coverage — FL YIMBY{% endblock %}
 {% block content %}
 <div class="page-heading">
-<h1>Coverage Index</h1>
-<p class="subtitle">{{ total }} published articles indexed from floridayimby.com</p>
+  <h1>Coverage Index</h1>
+  <p class="subtitle">{{ total }} project{{ 's' if total != 1 }} tracked</p>
 </div>
 
-<form class="search-box" method="get" action="/coverage">
-  <input name="q" value="{{ q }}" placeholder="Search by project name or address…" autofocus>
-  <button type="submit" class="btn btn-primary">Search</button>
-  {% if q %}<a href="/coverage" class="btn">Clear</a>{% endif %}
+<form class="filter-bar" method="get" action="/coverage">
+  <div class="filter-group" style="flex:1;min-width:220px">
+    <label>Search</label>
+    <input name="q" value="{{ q }}" placeholder="Project name or address…" style="width:100%">
+  </div>
+  <div class="filter-group">
+    <label>&nbsp;</label>
+    <button type="submit" class="btn btn-primary">Search</button>
+  </div>
+  {% if q %}
+  <div class="filter-group">
+    <label>&nbsp;</label>
+    <a href="/coverage" class="btn btn-ghost">Clear</a>
+  </div>
+  {% endif %}
 </form>
 
 {% if not entries %}
-<div class="empty"><div class="empty-icon">🔍</div>No results for "{{ q }}".</div>
+<div class="empty-state">
+  <div class="empty-state-icon">🗂</div>
+  {% if q %}
+    <strong>No results for "{{ q }}".</strong>
+    <p>Try a different search term.</p>
+  {% else %}
+    <strong>No coverage entries yet.</strong>
+    <p>Run <code>python process.py ingest-coverage</code> to populate.</p>
+  {% endif %}
+</div>
 {% else %}
-<div class="table-wrap">
-<table>
+
+<table class="data-table">
   <thead>
     <tr>
-      <th>Published</th>
       <th>Project</th>
       <th>Address</th>
       <th>Developer</th>
-      <th>Article</th>
+      <th>Architect</th>
+      <th>Published</th>
     </tr>
   </thead>
   <tbody>
   {% for e in entries %}
   <tr>
-    <td style="white-space:nowrap;color:#64748b;font-size:12px">{{ e.published_at[:10] if e.published_at else '—' }}</td>
-    <td style="font-weight:500">{{ e.project_name or '—' }}</td>
-    <td style="color:#64748b;font-size:13px">{{ e.address or '—' }}</td>
-    <td style="color:#64748b;font-size:13px">{{ e.developer or '—' }}</td>
-    <td style="font-size:12px">
-      <a href="{{ e.article_url }}" target="_blank" rel="noopener">
-        {{ e.article_url.split('/')[-1][:55] }}…
-      </a>
+    <td style="font-weight:500;max-width:260px">
+      {% if e.article_url %}
+        <a href="{{ e.article_url }}" target="_blank" rel="noopener"
+           style="color:var(--accent);text-decoration:none">
+          {{ e.project_name or '—' }}
+        </a>
+      {% else %}
+        {{ e.project_name or '—' }}
+      {% endif %}
+    </td>
+    <td style="color:var(--text-secondary);font-size:12px;max-width:200px">{{ e.address or '—' }}</td>
+    <td style="color:var(--text-secondary);font-size:12px">{{ e.developer or '—' }}</td>
+    <td style="color:var(--text-secondary);font-size:12px">{{ e.architect or '—' }}</td>
+    <td style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);white-space:nowrap">
+      {{ e.published_at[:10] if e.published_at else '—' }}
     </td>
   </tr>
   {% endfor %}
   </tbody>
 </table>
-</div>
 
 <div class="pagination">
   {% if page > 1 %}
@@ -55,5 +81,6 @@
     <a href="{{ url_for('coverage', page=page+1, q=q) }}">Next →</a>
   {% endif %}
 </div>
+
 {% endif %}
 {% endblock %}

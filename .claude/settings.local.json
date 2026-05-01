@@ -20,7 +20,11 @@
       "Bash(.venv/bin/python3 dashboard.py)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:5000/)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(python3 *)",
+      "Bash(sqlite3 yimby.db \"SELECT DISTINCT market FROM extracted_items WHERE market IS NOT NULL ORDER BY market;\")",
+      "Bash(sqlite3 /Users/oscarnunez/florida-yimby-agent/yimby.db \"SELECT DISTINCT market FROM extracted_items WHERE market IS NOT NULL ORDER BY market;\")",
+      "Bash(sqlite3 *)"
     ]
   }
 }

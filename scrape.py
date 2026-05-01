@@ -28,6 +28,7 @@ from dotenv import load_dotenv
 from selectolax.parser import HTMLParser
 
 from db import get_conn, init_db
+from utils import _strip_fences
 
 load_dotenv()
 
@@ -53,6 +54,9 @@ def load_sources() -> dict:
 # ── OG image fetching ─────────────────────────────────────────────────────────
 
 _NON_ARTICLE_DOMAINS = {"arquitectonica.com", "kobikarp.com"}
+
+# Sources whose OG images must be embedded as base64 data URLs (hotlink protection).
+_EMBED_IMAGE_SOURCES = {"floridian development"}
 
 
 def _is_non_article_url(url: str) -> bool:
@@ -82,6 +86,23 @@ def fetch_og_image(url: str) -> Optional[str]:
     except Exception:
         pass
     return None
+
+
+def _download_as_data_url(image_url: str) -> Optional[str]:
+    """Download an image and return it as an embedded base64 data URL."""
+    try:
+        r = httpx.get(
+            image_url,
+            timeout=REQUEST_TIMEOUT,
+            follow_redirects=True,
+            headers={"User-Agent": HTML_USER_AGENT},
+        )
+        r.raise_for_status()
+        content_type = r.headers.get("content-type", "image/jpeg").split(";")[0].strip()
+        b64 = base64.standard_b64encode(r.content).decode()
+        return f"data:{content_type};base64,{b64}"
+    except Exception:
+        return None
 
 
 # ── RSS ───────────────────────────────────────────────────────────────────────
@@ -115,7 +136,7 @@ def scrape_rss_sources(sources: list[dict]) -> tuple[int, int]:
     """Fetch each RSS source and upsert new entries. Returns (seen, inserted)."""
     total_seen = 0
     total_inserted = 0
-    new_entry_urls: list[str] = []
+    new_entry_items: list[tuple[str, str]] = []  # (source_name, article_url)
 
     with get_conn() as conn:
         for source in sources:
@@ -159,18 +180,22 @@ def scrape_rss_sources(sources: list[dict]) -> tuple[int, int]:
                 )
                 if cur.rowcount:
                     inserted_count += 1
-                    new_entry_urls.append(entry_url)
+                    new_entry_items.append((name, entry_url))
 
             total_inserted += inserted_count
             log.info("  %d new  /  %d skipped (already seen)", inserted_count, len(entries) - inserted_count)
 
         # Fetch OG images for newly inserted RSS captures (0.5s delay each)
-        if new_entry_urls:
-            log.info("Fetching OG images for %d new RSS items…", len(new_entry_urls))
-        for article_url in new_entry_urls:
+        if new_entry_items:
+            log.info("Fetching OG images for %d new RSS items…", len(new_entry_items))
+        for source_name, article_url in new_entry_items:
             time.sleep(0.5)
-            og = fetch_og_image(article_url)
-            if og:
+            og_url = fetch_og_image(article_url)
+            if og_url:
+                if source_name.lower() in _EMBED_IMAGE_SOURCES:
+                    og = _download_as_data_url(og_url) or og_url
+                else:
+                    og = og_url
                 conn.execute(
                     "UPDATE raw_captures SET og_image_url = ? WHERE url = ?",
                     (og, article_url),
@@ -315,15 +340,6 @@ def scrape_wp_rest_sources(sources: list[dict]) -> tuple[int, int]:
 
 
 # ── IQM2 government calendar ─────────────────────────────────────────────────
-
-def _strip_fences(text: str) -> str:
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[-1]
-        if text.endswith("```"):
-            text = text[: text.rfind("```")]
-    return text.strip()
-
 
 def _extract_agenda_projects(
     text_agenda_url: str,

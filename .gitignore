@@ -29,3 +29,5 @@ db.sqlite-shm
 db.sqlite-wal
 *.sqlite-shm
 *.sqlite-wal
+.claude/
+yimby.db

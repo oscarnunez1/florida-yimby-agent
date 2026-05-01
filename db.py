@@ -135,16 +135,28 @@ def init_db() -> None:
         )
 
         # Backfill market for any extracted_items where market IS NULL.
-        # Runs as a series of no-ops once all rows have a market value.
-        # All current IQM2 boards are Miami; hearing_board presence implies MIAMI.
-        try:
+        # Short-circuits when all rows already have a value.
+        needs_backfill = conn.execute(
+            "SELECT 1 FROM extracted_items WHERE market IS NULL LIMIT 1"
+        ).fetchone()
+        if needs_backfill:
+            # json_extract pass: IQM2 items carry hearing_board in JSON → always MIAMI.
+            # Isolated so city/address pass still runs on older SQLite without json_extract.
+            try:
+                conn.execute("""
+                    UPDATE extracted_items SET market = 'MIAMI'
+                    WHERE market IS NULL
+                      AND extracted_data_json IS NOT NULL
+                      AND json_extract(extracted_data_json, '$.hearing_board') IS NOT NULL
+                """)
+            except Exception:
+                pass
+
             conn.executescript("""
                 UPDATE extracted_items SET market = 'MIAMI'
                 WHERE market IS NULL AND (
                     lower(coalesce(city,''))    LIKE '%miami%'
                     OR lower(coalesce(address,'')) LIKE '%miami%'
-                    OR (extracted_data_json IS NOT NULL
-                        AND json_extract(extracted_data_json, '$.hearing_board') IS NOT NULL)
                 );
                 UPDATE extracted_items SET market = 'TAMPA'
                 WHERE market IS NULL AND (
@@ -204,8 +216,6 @@ def init_db() -> None:
                 UPDATE extracted_items SET market = 'OTHER'
                 WHERE market IS NULL;
             """)
-        except Exception:
-            pass  # SQLite version may not support json_extract — market stays NULL
 
 
 if __name__ == "__main__":

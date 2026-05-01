@@ -2,21 +2,14 @@
 {% block title %}Logs — FL YIMBY{% endblock %}
 {% block content %}
 <div class="page-heading">
-  <h1>Pipeline Logs</h1>
-  <p class="subtitle">Daily run history and latest log output</p>
+  <h1>Logs</h1>
+  <p class="subtitle">Pipeline run history</p>
 </div>
 
-{% if not runs %}
-<div class="empty">
-  <div class="empty-icon">📋</div>
-  No runs logged yet. Run <code>python run_daily.py</code> to create the first entry.
-</div>
-{% else %}
-<div class="table-wrap" style="margin-bottom:24px">
-<table>
+{% if runs %}
+<table class="data-table" style="margin-bottom:36px">
   <thead>
     <tr>
-      <th>Status</th>
       <th>Run date</th>
       <th>New captures</th>
       <th>New briefs</th>
@@ -25,50 +18,44 @@
     </tr>
   </thead>
   <tbody>
-  {% for r in runs %}
-  {% set has_errors = r.errors_json and r.errors_json != 'null' %}
+  {% for run in runs %}
   <tr>
-    <td>
-      {% if has_errors %}
-        <span class="status-pill pill-err">● Error</span>
-      {% else %}
-        <span class="status-pill pill-ok">● OK</span>
-      {% endif %}
+    <td style="font-family:'DM Mono',monospace;font-size:12px;white-space:nowrap">{{ run.run_date }}</td>
+    <td style="font-family:'DM Mono',monospace;font-size:13px">{{ run.new_captures }}</td>
+    <td style="font-family:'DM Mono',monospace;font-size:13px">{{ run.new_briefs }}</td>
+    <td style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted)">
+      {% if run.duration_seconds %}{{ "%.1f"|format(run.duration_seconds) }}s{% else %}—{% endif %}
     </td>
-    <td style="font-weight:600">{{ r.run_date }}</td>
-    <td style="text-align:right">{{ r.new_captures }}</td>
-    <td style="text-align:right;font-weight:{{ '600' if r.new_briefs > 0 else '400' }}">{{ r.new_briefs }}</td>
-    <td style="color:var(--muted)">{{ '%.1f'|format(r.duration_seconds) if r.duration_seconds else '—' }}s</td>
-    <td style="font-size:12px;max-width:220px;word-break:break-word">
-      {% if has_errors %}<span style="color:var(--red)">{{ r.errors_json }}</span>{% else %}—{% endif %}
+    <td>
+      {% if run.errors_json and run.errors_json != '[]' %}
+        <span style="font-size:12px;color:#ef4444">{{ run.errors_json }}</span>
+      {% else %}
+        <span style="font-size:12px;color:#10b981">None</span>
+      {% endif %}
     </td>
   </tr>
   {% endfor %}
   </tbody>
 </table>
+{% else %}
+<div class="empty-state" style="padding:40px 0">
+  <div class="empty-state-icon">⚙</div>
+  <strong>No runs logged yet.</strong>
+  <p>Run <code>python run_daily.py</code> to start the pipeline.</p>
 </div>
 {% endif %}
 
-<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px">
-  <h2 style="font-size:16px;font-weight:700">Latest log file</h2>
-  {% if log_filename %}
-    <span style="font-size:13px;color:var(--muted);font-family:'SF Mono',Menlo,monospace">{{ log_filename }}</span>
-  {% endif %}
+{% if log_filename %}
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+  <span style="font-family:'DM Mono',monospace;font-size:12px;font-weight:500;color:var(--text-secondary)">{{ log_filename }}</span>
+  <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted)">(last 100 lines)</span>
 </div>
-
-{% if log_lines %}
-<div class="log-terminal">
-  <pre>{% for line in log_lines %}{% if 'ERROR' in line or 'FAILED' in line %}<span class="log-line-error">{{ line }}</span>
-{% elif 'WARNING' in line or 'SKIP' in line %}<span class="log-line-warn">{{ line }}</span>
-{% elif 'Done' in line or 'OK' in line or 'finished' in line %}<span class="log-line-ok">{{ line }}</span>
-{% else %}<span class="log-line-default">{{ line }}</span>
-{% endif %}{% endfor %}</pre>
-</div>
-<p style="font-size:12px;color:var(--subtle);margin-top:8px">Showing last {{ log_lines|length }} lines.</p>
+<div class="log-viewer">{% for line in log_lines %}{{ line }}
+{% endfor %}</div>
+{% elif not runs %}
 {% else %}
-<div class="empty" style="background:var(--surface);border:1px solid var(--border);border-radius:10px">
-  <div class="empty-icon">📄</div>
-  No log file found. The file is written when <code>run_daily.sh</code> executes.
+<div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);padding:16px 0">
+  No log file found in logs/
 </div>
 {% endif %}
 {% endblock %}
