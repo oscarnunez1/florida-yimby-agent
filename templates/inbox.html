@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Inbox — FL YIMBY{% endblock %}
+{% block title %}Briefs — FL YIMBY{% endblock %}
 
 {% block content %}
 <div class="page-heading">
   <div style="display:flex; align-items:center; gap:12px;">
-    <h1 style="margin:0;">Inbox</h1>
+    <h1 style="margin:0;">Briefs</h1>
     <button class="refresh-btn" aria-label="Refresh briefs">↻</button>
   </div>
   <p class="subtitle">{{ briefs|length }} brief{{ 's' if briefs|length != 1 }}</p>
