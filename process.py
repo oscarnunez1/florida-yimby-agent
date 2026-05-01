@@ -36,6 +36,42 @@ MAX_TOKENS = 1024
 
 DRAFT_PROMPT_PATH = Path(__file__).parent / "prompts" / "draft_brief.md"
 WP_API_URL = "https://floridayimby.com/wp-json/wp/v2/posts"
+
+# ── Market detection ──────────────────────────────────────────────────────────
+
+_MARKET_PATTERNS: list[tuple[str, list[str]]] = [
+    ("MIAMI",           ["miami"]),
+    ("TAMPA",           ["tampa"]),
+    ("ST. PETE",        ["st. pete", "st pete", "saint pete", "pinellas", "clearwater", "dunedin", "largo"]),
+    ("ORLANDO",         ["orlando", "kissimmee", "sanford", "lake nona"]),
+    ("WEST PALM",       ["west palm", "palm beach", "boca raton", "delray beach", "boynton beach"]),
+    ("FORT LAUDERDALE", ["fort lauderdale", "ft. lauderdale", "ft lauderdale"]),
+    ("BROWARD",         ["broward", "pompano", "deerfield beach", "coral springs", "davie, fl", "miramar, fl",
+                          "pembroke pines", "hallandale", "sunrise, fl", "plantation, fl", "tamarac", "weston, fl"]),
+    ("STATEWIDE",       ["statewide"]),
+]
+
+_STATEWIDE_SOURCES = {"floridian development"}
+
+
+def detect_market(city: Optional[str], address: Optional[str],
+                  source: Optional[str] = None,
+                  hearing_board: Optional[str] = None) -> str:
+    """Return one of the canonical market values for an extracted item."""
+    # All current IQM2 boards are Miami
+    if hearing_board:
+        return "MIAMI"
+
+    text = " ".join(x.lower() for x in [city or "", address or ""] if x).strip()
+
+    for market, patterns in _MARKET_PATTERNS:
+        if any(p in text for p in patterns):
+            return market
+
+    if source and source.lower() in _STATEWIDE_SOURCES:
+        return "STATEWIDE"
+
+    return "OTHER"
 HTML_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 REQUEST_TIMEOUT = 20
 ARTICLE_BODY_CHARS = 2000  # enough for developer/architect to appear; keeps token cost low
@@ -158,10 +194,16 @@ def cmd_classify(limit: Optional[int], dry_run: bool, ids: Optional[list] = None
         is_dev = bool(data.get("is_development_item"))
         fl_rel = bool(data.get("florida_relevance"))
         priority_str = data.get("priority", "low")
+        market = detect_market(
+            data.get("city"),
+            data.get("address"),
+            source=source,
+            hearing_board=data.get("hearing_board"),
+        )
 
         log.info(
-            "id=%-4d  dev=%-5s  fl=%-5s  priority=%-6s  [%s] %s",
-            capture_id, is_dev, fl_rel, priority_str, source, title[:60],
+            "id=%-4d  dev=%-5s  fl=%-5s  priority=%-6s  market=%-15s  [%s] %s",
+            capture_id, is_dev, fl_rel, priority_str, market, source, title[:60],
         )
 
         if not dry_run:
@@ -172,8 +214,9 @@ def cmd_classify(limit: Optional[int], dry_run: bool, ids: Optional[list] = None
                         raw_capture_id, project_name, address, city,
                         developer, architect, units, height,
                         status, event_type, priority,
-                        is_development_item, florida_relevance, extracted_data_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        is_development_item, florida_relevance, extracted_data_json,
+                        market
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         capture_id,
@@ -190,6 +233,7 @@ def cmd_classify(limit: Optional[int], dry_run: bool, ids: Optional[list] = None
                         1 if is_dev else 0,
                         1 if fl_rel else 0,
                         clean,
+                        market,
                     ),
                 )
                 conn.execute("UPDATE raw_captures SET processed = 1 WHERE id = ?", (capture_id,))

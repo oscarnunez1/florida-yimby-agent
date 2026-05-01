@@ -97,6 +97,7 @@ def init_db() -> None:
             ("extracted_items", "florida_relevance",    "INTEGER NOT NULL DEFAULT 0"),
             ("extracted_items", "already_covered",      "INTEGER NOT NULL DEFAULT 0"),
             ("extracted_items", "coverage_match_url",   "TEXT"),
+            ("extracted_items", "market",               "TEXT"),
             ("raw_captures",    "metadata_json",        "TEXT"),
             ("raw_captures",    "og_image_url",         "TEXT"),
             ("raw_captures",    "published_at",         "TEXT"),
@@ -128,6 +129,83 @@ def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_extracted_florida"
             " ON extracted_items(florida_relevance, is_development_item)"
         )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_extracted_market"
+            " ON extracted_items(market)"
+        )
+
+        # Backfill market for any extracted_items where market IS NULL.
+        # Runs as a series of no-ops once all rows have a market value.
+        # All current IQM2 boards are Miami; hearing_board presence implies MIAMI.
+        try:
+            conn.executescript("""
+                UPDATE extracted_items SET market = 'MIAMI'
+                WHERE market IS NULL AND (
+                    lower(coalesce(city,''))    LIKE '%miami%'
+                    OR lower(coalesce(address,'')) LIKE '%miami%'
+                    OR (extracted_data_json IS NOT NULL
+                        AND json_extract(extracted_data_json, '$.hearing_board') IS NOT NULL)
+                );
+                UPDATE extracted_items SET market = 'TAMPA'
+                WHERE market IS NULL AND (
+                    lower(coalesce(city,''))    LIKE '%tampa%'
+                    OR lower(coalesce(address,'')) LIKE '%tampa%'
+                );
+                UPDATE extracted_items SET market = 'ST. PETE'
+                WHERE market IS NULL AND (
+                    lower(coalesce(city,''))    LIKE '%st. pete%'
+                    OR lower(coalesce(city,''))    LIKE '%st pete%'
+                    OR lower(coalesce(city,''))    LIKE '%saint pete%'
+                    OR lower(coalesce(city,''))    LIKE '%pinellas%'
+                    OR lower(coalesce(city,''))    LIKE '%clearwater%'
+                    OR lower(coalesce(address,'')) LIKE '%st. pete%'
+                    OR lower(coalesce(address,'')) LIKE '%st pete%'
+                    OR lower(coalesce(address,'')) LIKE '%pinellas%'
+                    OR lower(coalesce(address,'')) LIKE '%clearwater%'
+                );
+                UPDATE extracted_items SET market = 'ORLANDO'
+                WHERE market IS NULL AND (
+                    lower(coalesce(city,''))    LIKE '%orlando%'
+                    OR lower(coalesce(address,'')) LIKE '%orlando%'
+                    OR lower(coalesce(city,''))    LIKE '%kissimmee%'
+                    OR lower(coalesce(address,'')) LIKE '%kissimmee%'
+                );
+                UPDATE extracted_items SET market = 'WEST PALM'
+                WHERE market IS NULL AND (
+                    lower(coalesce(city,''))    LIKE '%west palm%'
+                    OR lower(coalesce(city,''))    LIKE '%palm beach%'
+                    OR lower(coalesce(city,''))    LIKE '%boca raton%'
+                    OR lower(coalesce(city,''))    LIKE '%delray%'
+                    OR lower(coalesce(address,'')) LIKE '%west palm%'
+                    OR lower(coalesce(address,'')) LIKE '%palm beach%'
+                    OR lower(coalesce(address,'')) LIKE '%boca raton%'
+                );
+                UPDATE extracted_items SET market = 'FORT LAUDERDALE'
+                WHERE market IS NULL AND (
+                    lower(coalesce(city,''))    LIKE '%fort lauderdale%'
+                    OR lower(coalesce(city,''))    LIKE '%ft. lauderdale%'
+                    OR lower(coalesce(city,''))    LIKE '%ft lauderdale%'
+                    OR lower(coalesce(address,'')) LIKE '%fort lauderdale%'
+                    OR lower(coalesce(address,'')) LIKE '%ft. lauderdale%'
+                );
+                UPDATE extracted_items SET market = 'BROWARD'
+                WHERE market IS NULL AND (
+                    lower(coalesce(city,''))    LIKE '%broward%'
+                    OR lower(coalesce(city,''))    LIKE '%pompano%'
+                    OR lower(coalesce(city,''))    LIKE '%pembroke pines%'
+                    OR lower(coalesce(city,''))    LIKE '%coral springs%'
+                    OR lower(coalesce(city,''))    LIKE '%deerfield beach%'
+                    OR lower(coalesce(city,''))    LIKE '%miramar%'
+                    OR lower(coalesce(city,''))    LIKE '%hallandale%'
+                    OR lower(coalesce(address,'')) LIKE '%broward%'
+                    OR lower(coalesce(address,'')) LIKE '%pompano%'
+                    OR lower(coalesce(address,'')) LIKE '%pembroke pines%'
+                );
+                UPDATE extracted_items SET market = 'OTHER'
+                WHERE market IS NULL;
+            """)
+        except Exception:
+            pass  # SQLite version may not support json_extract — market stays NULL
 
 
 if __name__ == "__main__":

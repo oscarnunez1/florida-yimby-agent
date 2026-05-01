@@ -6,7 +6,7 @@
 <p class="subtitle">All briefs · {{ total }} total</p>
 </div>
 
-{% set filters_active = filters.src_type or filters.priority or filters.status or filters.board or filters.from_date or filters.to_date %}
+{% set filters_active = filters.src_type or filters.priority or filters.status or filters.board or filters.from_date or filters.to_date or filters.market %}
 
 <details class="filter-details" {% if filters_active %}open{% endif %}>
   <summary class="filter-toggle">
@@ -43,6 +43,18 @@
         <option value="used"      {{ 'selected' if filters.status == 'used' }}>Used</option>
         <option value="dismissed" {{ 'selected' if filters.status == 'dismissed' }}>Dismissed</option>
         <option value="snoozed"   {{ 'selected' if filters.status == 'snoozed' }}>Snoozed</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Market</label>
+      <select name="market">
+        <option value="">All</option>
+        {% for mkt in PRIMARY_MARKETS %}
+        <option value="{{ mkt }}" {{ 'selected' if filters.market == mkt }}>{{ market_display(mkt) }}</option>
+        {% endfor %}
+        <option value="BROWARD"   {{ 'selected' if filters.market == 'BROWARD' }}>Broward</option>
+        <option value="STATEWIDE" {{ 'selected' if filters.market == 'STATEWIDE' }}>Statewide</option>
+        <option value="OTHER"     {{ 'selected' if filters.market == 'OTHER' }}>Other</option>
       </select>
     </div>
     <div class="filter-group">

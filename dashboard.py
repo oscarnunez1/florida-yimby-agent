@@ -15,6 +15,7 @@ Routes:
 
 import math
 import yaml
+from collections import Counter
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional
@@ -76,7 +77,7 @@ def _source_type_map() -> dict[str, str]:
 def _brief_query_base() -> str:
     return """
         SELECT b.*, rc.source, rc.captured_at, rc.og_image_url, rc.published_at,
-               ei.priority, ei.event_type
+               ei.priority, ei.event_type, ei.market
         FROM briefs b
         JOIN extracted_items ei ON ei.id = b.extracted_item_id
         JOIN raw_captures    rc ON rc.id = ei.raw_capture_id
@@ -96,6 +97,35 @@ def source_placeholder_color(source: str) -> str:
     return "#1e3a5f"
 
 
+_MARKET_COLORS: dict[str, str] = {
+    "MIAMI":           "#1e3a5f",
+    "TAMPA":           "#065f46",
+    "ST. PETE":        "#9a3412",
+    "ORLANDO":         "#4c1d95",
+    "WEST PALM":       "#7f1d1d",
+    "FORT LAUDERDALE": "#1e40af",
+    "BROWARD":         "#713f12",
+    "STATEWIDE":       "#1f2937",
+    "OTHER":           "#475569",
+}
+
+_MARKET_DISPLAY: dict[str, str] = {
+    "FORT LAUDERDALE": "FT. LAUDERDALE",
+}
+
+# Ordered list of primary markets shown as pills on the Today view.
+PRIMARY_MARKETS = ["MIAMI", "TAMPA", "ST. PETE", "ORLANDO", "WEST PALM", "FORT LAUDERDALE"]
+
+
+def market_color(market: str) -> str:
+    return _MARKET_COLORS.get(market or "OTHER", "#475569")
+
+
+def market_display(market: str) -> str:
+    m = market or "OTHER"
+    return _MARKET_DISPLAY.get(m, m)
+
+
 # ── Template context ──────────────────────────────────────────────────────────
 
 @app.context_processor
@@ -103,6 +133,9 @@ def inject_globals():
     return {
         "hearing_badge":            hearing_badge,
         "source_placeholder_color": source_placeholder_color,
+        "market_color":             market_color,
+        "market_display":           market_display,
+        "PRIMARY_MARKETS":          PRIMARY_MARKETS,
         "active_page":              None,
     }
 
@@ -111,8 +144,9 @@ def inject_globals():
 
 @app.route("/")
 def today():
-    from_date = request.args.get("from_date", "").strip()
-    to_date   = request.args.get("to_date",   "").strip()
+    from_date     = request.args.get("from_date",     "").strip()
+    to_date       = request.args.get("to_date",       "").strip()
+    market_filter = request.args.get("market",        "").strip().upper()
 
     effective_from = from_date or (date.today() - timedelta(days=7)).isoformat()
     effective_to   = to_date   or date.today().isoformat()
@@ -132,9 +166,12 @@ def today():
             """,
             (effective_from, effective_to),
         ).fetchall()
+
+    market_counts = Counter(b["market"] or "OTHER" for b in briefs)
     return render_template(
         "today.html", briefs=briefs, active_page="today",
         from_date=effective_from, to_date=effective_to,
+        market_counts=market_counts, market_filter=market_filter,
     )
 
 
@@ -149,9 +186,10 @@ def history():
     board      = request.args.get("board",     "").strip()
     from_date  = request.args.get("from_date", "").strip()
     to_date    = request.args.get("to_date",   "").strip()
+    market     = request.args.get("market",    "").strip().upper()
 
     filters = dict(src_type=src_type, priority=priority, status=status,
-                   board=board, from_date=from_date, to_date=to_date)
+                   board=board, from_date=from_date, to_date=to_date, market=market)
 
     where_clauses = []
     params: list = []
@@ -187,6 +225,10 @@ def history():
     if to_date:
         where_clauses.append("date(b.created_at) <= ?")
         params.append(to_date)
+
+    if market:
+        where_clauses.append("ei.market = ?")
+        params.append(market)
 
     where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
     order_sql  = "ORDER BY b.created_at DESC"

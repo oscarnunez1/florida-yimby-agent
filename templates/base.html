@@ -816,6 +816,64 @@ td a:hover { text-decoration: underline; }
 .pill-ok  { background: var(--green-bg); color: var(--green); }
 .pill-err { background: var(--red-bg);   color: var(--red); }
 
+/* ── Market pills (filter row + card badge) ─────────────────────────────── */
+.market-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  align-items: center;
+}
+.market-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 99px;
+  border: 1.5px solid var(--mc, var(--navy-mid));
+  background: transparent;
+  color: var(--mc, var(--navy-mid));
+  cursor: pointer;
+  transition: background .12s, color .12s, border-color .12s;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.market-pill:hover { background: color-mix(in srgb, var(--mc, var(--navy-mid)) 12%, transparent); }
+.market-pill.active {
+  background: var(--mc, var(--navy-mid));
+  color: #fff;
+}
+.pill-count {
+  font-size: 10px;
+  font-weight: 500;
+  opacity: .75;
+}
+.market-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  padding: 1px 7px;
+  border-radius: 99px;
+  border: 1.5px solid var(--mc, var(--navy-mid));
+  background: transparent;
+  color: var(--mc, var(--navy-mid));
+  cursor: pointer;
+  transition: background .12s, color .12s;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+.market-badge:hover {
+  background: var(--mc, var(--navy-mid));
+  color: #fff;
+}
+
 /* ── Responsive ─────────────────────────────────────────────────────────── */
 @media (max-width: 859px) {
   .page { padding: 16px 14px 60px; }

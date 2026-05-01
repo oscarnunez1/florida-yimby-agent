@@ -6,8 +6,27 @@
   <p class="subtitle">{{ briefs|length }} brief{{ 's' if briefs|length != 1 }} · {{ from_date }} to {{ to_date }}</p>
 </div>
 
+<!-- Market filter pills -->
+<div class="market-pills" id="market-pills">
+  <button class="market-pill"
+          data-market="ALL"
+          style="--mc: var(--navy-mid)"
+          onclick="filterByMarket('ALL')">
+    ALL <span class="pill-count">({{ briefs|length }})</span>
+  </button>
+  {% for mkt in PRIMARY_MARKETS %}
+  {% set cnt = market_counts.get(mkt, 0) %}
+  <button class="market-pill"
+          data-market="{{ mkt }}"
+          style="--mc: {{ market_color(mkt) }}"
+          onclick="filterByMarket('{{ mkt }}')">
+    {{ market_display(mkt) }} <span class="pill-count">({{ cnt }})</span>
+  </button>
+  {% endfor %}
+</div>
+
 <!-- Date range filter -->
-<form class="today-filter" method="get" action="/">
+<form class="today-filter" method="get" action="/" id="today-filter-form">
   <div class="filter-group">
     <label>From</label>
     <input type="date" name="from_date" value="{{ from_date }}">
@@ -16,6 +35,8 @@
     <label>To</label>
     <input type="date" name="to_date" value="{{ to_date }}">
   </div>
+  <!-- market preserved across date-filter submits -->
+  <input type="hidden" name="market" id="form-market-input" value="{{ market_filter }}">
   <div class="filter-group" style="justify-content:flex-end">
     <label>&nbsp;</label>
     <button type="submit" class="btn btn-primary">Filter</button>
@@ -37,13 +58,17 @@
 } %}
 
 {% for b in briefs %}
-{% set badge  = hearing_badge(b.hearing_date, b.hearing_board) %}
-{% set pkey   = {3:'high', 2:'medium', 1:'low'}.get(b.priority, 'low') %}
-{% set sclass = b.status if b.status in ('new','used','dismissed','snoozed') else 'new' %}
-{% set slabel = {'new':'New','used':'Used','dismissed':'Dismissed','snoozed':'Snoozed','pending':'New'}.get(b.status,'New') %}
+{% set badge       = hearing_badge(b.hearing_date, b.hearing_board) %}
+{% set pkey        = {3:'high', 2:'medium', 1:'low'}.get(b.priority, 'low') %}
+{% set sclass      = b.status if b.status in ('new','used','dismissed','snoozed') else 'new' %}
+{% set slabel      = {'new':'New','used':'Used','dismissed':'Dismissed','snoozed':'Snoozed','pending':'New'}.get(b.status,'New') %}
 {% set thumb_color = source_placeholder_color(b.source) %}
+{% set mkt         = b.market or 'OTHER' %}
+{% set mkt_color   = market_color(mkt) %}
 
-<div class="card card-redesign pri-{{ pkey }}" data-id="{{ b.id }}"
+<div class="card card-redesign pri-{{ pkey }}"
+     data-id="{{ b.id }}"
+     data-market="{{ mkt }}"
      data-lede="{{ b.lede|e }}"
      data-body="{{ b.body|e }}">
 
@@ -69,6 +94,13 @@
             </span>
           </span>
           <span class="badge badge-{{ sclass }} status-badge">{{ slabel }}</span>
+          <!-- Market badge: clicking filters to this market -->
+          <button class="market-badge"
+                  style="--mc: {{ mkt_color }}"
+                  data-market="{{ mkt }}"
+                  onclick="event.stopPropagation(); filterByMarket('{{ mkt }}')">
+            {{ market_display(mkt) }}
+          </button>
           <span class="card-source">{{ b.source }}</span>
         </div>
 
@@ -141,4 +173,51 @@
   </div>
 </div>
 {% endfor %}
+
+<script>
+/* ── Market filter (client-side, no reload) ── */
+(function () {
+  // Read initial market from URL; fall back to form-market-input (server-rendered)
+  const params    = new URLSearchParams(location.search);
+  const initMarket = params.get('market') || '{{ market_filter }}' || 'ALL';
+
+  function applyMarketFilter(market) {
+    const m = (market || 'ALL').toUpperCase();
+    // Show/hide cards
+    document.querySelectorAll('.card[data-market]').forEach(function (card) {
+      card.style.display = (m === 'ALL' || card.dataset.market === m) ? '' : 'none';
+    });
+    // Update pill active state
+    document.querySelectorAll('.market-pill').forEach(function (pill) {
+      pill.classList.toggle('active', pill.dataset.market === m);
+    });
+    // Keep hidden form input in sync so date-filter submits preserve the market
+    const inp = document.getElementById('form-market-input');
+    if (inp) inp.value = (m === 'ALL') ? '' : m;
+  }
+
+  window.filterByMarket = function (market) {
+    const m = (market || 'ALL').toUpperCase();
+    // Update URL without reload
+    const url = new URL(location.href);
+    if (m === 'ALL') {
+      url.searchParams.delete('market');
+    } else {
+      url.searchParams.set('market', m);
+    }
+    history.pushState({ market: m }, '', url);
+    applyMarketFilter(m);
+  };
+
+  // Restore market filter on browser back/forward
+  window.addEventListener('popstate', function (e) {
+    const m = (e.state && e.state.market) ||
+              new URLSearchParams(location.search).get('market') || 'ALL';
+    applyMarketFilter(m);
+  });
+
+  // Apply on initial load (handles ?market= in URL or server-side market_filter)
+  applyMarketFilter(initMarket);
+})();
+</script>
 {% endblock %}
