@@ -34,13 +34,20 @@
   </select>
 
   <!-- Date -->
-  <select name="date" onchange="this.form.submit()">
+  <select name="date" id="date-filter" onchange="onDateChange()">
     <option value=""        {{ 'selected' if filters.date == '' }}>All Time</option>
     <option value="today"   {{ 'selected' if filters.date == 'today' }}>Today</option>
     <option value="last_7"  {{ 'selected' if filters.date == 'last_7' }}>Last 7 days</option>
     <option value="last_30" {{ 'selected' if filters.date == 'last_30' }}>Last 30 days</option>
     <option value="last_90" {{ 'selected' if filters.date == 'last_90' }}>Last 90 days</option>
+    <option value="custom"  {{ 'selected' if filters.date == 'custom' }}>Custom range...</option>
   </select>
+  <div id="custom-date-inputs"
+       style="display:{{ 'inline-flex' if filters.date == 'custom' else 'none' }}; align-items:center; gap:4px;">
+    <input type="date" name="from_date" id="from-date" value="{{ filters.from_date }}">
+    <span style="color:var(--text-muted); font-size:13px; margin:0 2px;">–</span>
+    <input type="date" name="to_date" id="to-date" value="{{ filters.to_date }}">
+  </div>
 
   <!-- Source -->
   <select name="source_type" onchange="this.form.submit()">
@@ -72,7 +79,7 @@
 <div class="active-filters">
   <span class="active-filters-label">Showing:</span>
   {% for chip in active_filters %}
-    <a class="filter-chip" href="{{ chip.clear }}">{{ chip.label }} ×</a>
+    <a class="filter-chip" href="{{ chip.href }}">{{ chip.label }} ×</a>
   {% endfor %}
   <a class="filter-chip filter-chip-clear" href="/archive">Clear all</a>
 </div>
@@ -198,6 +205,24 @@
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(232,82,42,0.1);
 }
+.filter-bar-geo input[type="date"] {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-medium);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  height: 34px;
+  width: 140px;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.filter-bar-geo input[type="date"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(232,82,42,0.1);
+}
 .hearings-btn {
   font-family: 'DM Mono', monospace;
   font-size: 11px;
@@ -292,5 +317,28 @@ function toggleHearings(btn) {
   inp.value = isActive ? '' : '1';
   document.getElementById('filter-form').submit();
 }
+
+function onDateChange() {
+  var sel = document.getElementById('date-filter');
+  var customInputs = document.getElementById('custom-date-inputs');
+  if (sel.value === 'custom') {
+    customInputs.style.display = 'inline-flex';
+    customInputs.style.alignItems = 'center';
+  } else {
+    customInputs.style.display = 'none';
+    document.getElementById('from-date').value = '';
+    document.getElementById('to-date').value = '';
+    document.getElementById('filter-form').submit();
+  }
+}
+
+function checkCustomSubmit() {
+  var from = document.getElementById('from-date').value;
+  var to   = document.getElementById('to-date').value;
+  if (from && to) document.getElementById('filter-form').submit();
+}
+
+document.getElementById('from-date').addEventListener('change', checkCustomSubmit);
+document.getElementById('to-date').addEventListener('change', checkCustomSubmit);
 </script>
 {% endblock %}

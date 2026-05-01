@@ -180,13 +180,21 @@ def _apply_common_filters(where: list, params: list, filters: dict) -> None:
         where.append("ei.market = ?")
         params.append(filters["city"])
 
-    date_from, date_to = _date_range_to_bounds(filters.get("date", ""))
-    if date_from:
-        where.append("date(rc.captured_at) >= ?")
-        params.append(date_from)
-    if date_to:
-        where.append("date(rc.captured_at) <= ?")
-        params.append(date_to)
+    date_val = filters.get("date", "")
+    if date_val == "custom":
+        from_d = filters.get("from_date", "")
+        to_d   = filters.get("to_date", "")
+        if from_d and to_d:
+            where.append("date(rc.captured_at) BETWEEN ? AND ?")
+            params.extend([from_d, to_d])
+    else:
+        date_from, date_to = _date_range_to_bounds(date_val)
+        if date_from:
+            where.append("date(rc.captured_at) >= ?")
+            params.append(date_from)
+        if date_to:
+            where.append("date(rc.captured_at) <= ?")
+            params.append(date_to)
 
     if filters.get("source_type"):
         cfg = _load_sources_config()
@@ -225,23 +233,35 @@ def _active_chips(path: str, filters: dict, default_status: str) -> list[dict]:
         return f"{path}?{urlencode(p)}" if p else path
 
     if filters.get("region"):
-        chips.append({"label": filters["region"], "clear": url_without("region", "county", "city")})
+        chips.append({"label": filters["region"], "href": url_without("region", "county", "city")})
     if filters.get("county"):
-        chips.append({"label": filters["county"], "clear": url_without("county", "city")})
+        chips.append({"label": filters["county"], "href": url_without("county", "city")})
     if filters.get("city"):
-        chips.append({"label": filters["city"], "clear": url_without("city")})
+        chips.append({"label": filters["city"], "href": url_without("city")})
     if filters.get("date"):
-        chips.append({"label": _DATE_LABELS.get(filters["date"], filters["date"]),
-                      "clear": url_without("date")})
+        if filters["date"] == "custom":
+            from_d = filters.get("from_date", "")
+            to_d   = filters.get("to_date", "")
+            if from_d and to_d:
+                try:
+                    f_str = datetime.strptime(from_d, "%Y-%m-%d").strftime("%b %-d")
+                    t_str = datetime.strptime(to_d,   "%Y-%m-%d").strftime("%b %-d")
+                    label = f"{f_str} – {t_str}"
+                except ValueError:
+                    label = f"{from_d} – {to_d}"
+                chips.append({"label": label, "href": url_without("date", "from_date", "to_date")})
+        else:
+            chips.append({"label": _DATE_LABELS.get(filters["date"], filters["date"]),
+                          "href": url_without("date")})
     if filters.get("source_type"):
         chips.append({"label": _SOURCE_LABELS.get(filters["source_type"], filters["source_type"]),
-                      "clear": url_without("source_type")})
+                      "href": url_without("source_type")})
     status = filters.get("status", "")
     if status and status != default_status:
         chips.append({"label": _STATUS_LABELS.get(status, status),
-                      "clear": url_without("status")})
+                      "href": url_without("status")})
     if filters.get("hearings") == "1":
-        chips.append({"label": "⚡ Upcoming hearings", "clear": url_without("hearings")})
+        chips.append({"label": "⚡ Upcoming hearings", "href": url_without("hearings")})
     return chips
 
 
@@ -295,6 +315,8 @@ def inbox():
         "county":      request.args.get("county",      "").strip(),
         "city":        request.args.get("city",        "").strip(),
         "date":        request.args.get("date",        "last_7").strip(),
+        "from_date":   request.args.get("from_date",   "").strip(),
+        "to_date":     request.args.get("to_date",     "").strip(),
         "source_type": request.args.get("source_type", "").strip(),
         "status":      request.args.get("status",      "").strip(),
         "hearings":    request.args.get("hearings",    "").strip(),
@@ -364,6 +386,8 @@ def archive():
         "county":      request.args.get("county",      "").strip(),
         "city":        request.args.get("city",        "").strip(),
         "date":        request.args.get("date",        "").strip(),
+        "from_date":   request.args.get("from_date",   "").strip(),
+        "to_date":     request.args.get("to_date",     "").strip(),
         "source_type": request.args.get("source_type", "").strip(),
         "status":      request.args.get("status",      "").strip(),
         "hearings":    request.args.get("hearings",    "").strip(),
