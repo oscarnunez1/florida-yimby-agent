@@ -2,17 +2,20 @@
 Flask dashboard for the Florida YIMBY research agent.
 
 Routes:
-  GET  /                    — Today view (last 24h briefs + upcoming hearings)
-  GET  /history             — Paginated brief history with filters
-  GET  /sources             — Source health table
-  GET  /coverage            — Coverage index with search
-  GET  /briefs/<id>         — Single-brief detail page
-  GET  /logs                — Pipeline run history + latest log file
-  POST /briefs/<id>/use     — Mark brief as used
-  POST /briefs/<id>/dismiss — Dismiss brief with reason
-  POST /briefs/<id>/snooze  — Snooze brief 24 h
+  GET  /  /inbox              — Inbox view (unread briefs)
+  GET  /archive               — Paginated brief archive with filters
+  GET  /history               — Redirect → /archive
+  GET  /sources               — Source health table
+  GET  /coverage              — Coverage index with search
+  GET  /briefs/<id>           — Single-brief detail page
+  GET  /logs                  — Pipeline run history + latest log file
+  POST /briefs/<id>/use       — Mark brief as used
+  POST /briefs/<id>/dismiss   — Dismiss brief with reason
+  POST /briefs/<id>/snooze    — Snooze brief 24 h
+  POST /briefs/<id>/undo      — Undo last action
 """
 
+import json
 import math
 import yaml
 from collections import Counter
@@ -20,10 +23,12 @@ from datetime import datetime, date, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlencode
 
 from flask import Flask, render_template, request, jsonify, abort, redirect, url_for
 
 from db import get_conn, init_db
+from process import CITY_TO_COUNTY, COUNTY_TO_REGION
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -33,6 +38,16 @@ COV_PER_PAGE  = 30
 
 app = Flask(__name__)
 app.secret_key = "fl-yimby-dashboard-dev"
+
+# ── Geo data (static, built from process.py mappings) ────────────────────────
+
+_COUNTY_TO_CITIES: dict[str, list[str]] = {}
+for _city, _county in CITY_TO_COUNTY.items():
+    _COUNTY_TO_CITIES.setdefault(_county, []).append(_city)
+
+_REGION_TO_COUNTIES: dict[str, list[str]] = {}
+for _county, _region in COUNTY_TO_REGION.items():
+    _REGION_TO_COUNTIES.setdefault(_region, []).append(_county)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -62,7 +77,6 @@ def _sources_yaml() -> dict:
 
 
 def _load_sources_config() -> dict[str, list[str]]:
-    """Return {type_key: [source_name, ...]} from sources.yaml."""
     cfg = _sources_yaml()
     return {
         section: [s["name"] for s in cfg.get(section, [])]
@@ -71,7 +85,6 @@ def _load_sources_config() -> dict[str, list[str]]:
 
 
 def _source_type_map() -> dict[str, str]:
-    """Return {source_name: type_key} for all configured sources."""
     cfg = _sources_yaml()
     return {
         s["name"]: section
@@ -83,7 +96,7 @@ def _source_type_map() -> dict[str, str]:
 def _brief_query_base() -> str:
     return """
         SELECT b.*, rc.source, rc.captured_at, rc.og_image_url, rc.published_at,
-               ei.priority, ei.event_type, ei.market
+               ei.priority, ei.event_type, ei.market, ei.county, ei.region
         FROM briefs b
         JOIN extracted_items ei ON ei.id = b.extracted_item_id
         JOIN raw_captures    rc ON rc.id = ei.raw_capture_id
@@ -138,142 +151,281 @@ def market_display(market: str) -> str:
     return market or "FLORIDA"
 
 
+# ── Filter helpers ────────────────────────────────────────────────────────────
+
+def _date_range_to_bounds(date_range: str) -> tuple[Optional[str], Optional[str]]:
+    today = date.today().isoformat()
+    if date_range == "today":
+        return today, today
+    if date_range == "last_7":
+        return (date.today() - timedelta(days=7)).isoformat(), today
+    if date_range == "last_30":
+        return (date.today() - timedelta(days=30)).isoformat(), today
+    if date_range == "last_90":
+        return (date.today() - timedelta(days=90)).isoformat(), today
+    return None, None
+
+
+def _apply_common_filters(where: list, params: list, filters: dict) -> None:
+    """Append region/county/city/date/source_type/hearings clauses in-place."""
+    if filters.get("region"):
+        where.append("ei.region = ?")
+        params.append(filters["region"])
+
+    if filters.get("county"):
+        where.append("ei.county = ?")
+        params.append(filters["county"])
+
+    if filters.get("city"):
+        where.append("ei.market = ?")
+        params.append(filters["city"])
+
+    date_from, date_to = _date_range_to_bounds(filters.get("date", ""))
+    if date_from:
+        where.append("date(rc.captured_at) >= ?")
+        params.append(date_from)
+    if date_to:
+        where.append("date(rc.captured_at) <= ?")
+        params.append(date_to)
+
+    if filters.get("source_type"):
+        cfg = _load_sources_config()
+        if filters["source_type"] == "municipal":
+            src_names = cfg.get("iqm2", [])
+        else:
+            src_names = cfg.get("rss", []) + cfg.get("html_scrape", []) + cfg.get("wp_rest", [])
+        if src_names:
+            where.append(f"rc.source IN ({','.join('?' * len(src_names))})")
+            params.extend(src_names)
+        else:
+            where.append("1=0")
+
+    if filters.get("hearings") == "1":
+        where.append(
+            "b.hearing_date IS NOT NULL"
+            " AND date(b.hearing_date) >= date('now')"
+            " AND date(b.hearing_date) <= date('now', '+14 days')"
+        )
+
+
+_DATE_LABELS = {
+    "today": "Today", "last_7": "Last 7 days",
+    "last_30": "Last 30 days", "last_90": "Last 90 days",
+}
+_SOURCE_LABELS  = {"news": "News", "municipal": "Municipal"}
+_STATUS_LABELS  = {"all": "All", "used": "Used", "snoozed": "Snoozed",
+                   "dismissed": "Dismissed", "new": "New"}
+
+
+def _active_chips(path: str, filters: dict, default_status: str) -> list[dict]:
+    chips = []
+
+    def url_without(*keys):
+        p = {k: v for k, v in filters.items() if v and k not in keys}
+        return f"{path}?{urlencode(p)}" if p else path
+
+    if filters.get("region"):
+        chips.append({"label": filters["region"], "clear": url_without("region", "county", "city")})
+    if filters.get("county"):
+        chips.append({"label": filters["county"], "clear": url_without("county", "city")})
+    if filters.get("city"):
+        chips.append({"label": filters["city"], "clear": url_without("city")})
+    if filters.get("date"):
+        chips.append({"label": _DATE_LABELS.get(filters["date"], filters["date"]),
+                      "clear": url_without("date")})
+    if filters.get("source_type"):
+        chips.append({"label": _SOURCE_LABELS.get(filters["source_type"], filters["source_type"]),
+                      "clear": url_without("source_type")})
+    status = filters.get("status", "")
+    if status and status != default_status:
+        chips.append({"label": _STATUS_LABELS.get(status, status),
+                      "clear": url_without("status")})
+    if filters.get("hearings") == "1":
+        chips.append({"label": "⚡ Upcoming hearings", "clear": url_without("hearings")})
+    return chips
+
+
+def _geo_json_for_template(all_counties: list, all_cities: list) -> str:
+    return json.dumps({
+        "city_to_county":     CITY_TO_COUNTY,
+        "county_to_region":   COUNTY_TO_REGION,
+        "region_to_counties": _REGION_TO_COUNTIES,
+        "county_to_cities":   _COUNTY_TO_CITIES,
+        "all_counties":       all_counties,
+        "all_cities":         all_cities,
+    })
+
+
+def _geo_lookups() -> tuple[list, list]:
+    with get_conn() as conn:
+        all_counties = [r["county"] for r in conn.execute(
+            "SELECT DISTINCT county FROM extracted_items WHERE county IS NOT NULL ORDER BY county"
+        ).fetchall()]
+        all_cities = [r["market"] for r in conn.execute(
+            "SELECT DISTINCT market FROM extracted_items WHERE market IS NOT NULL ORDER BY market"
+        ).fetchall()]
+    return all_counties, all_cities
+
+
 # ── Template context ──────────────────────────────────────────────────────────
 
 @app.context_processor
 def inject_globals():
+    with get_conn() as conn:
+        unread_count = conn.execute(
+            "SELECT COUNT(*) FROM briefs WHERE status IN ('new', 'pending')"
+        ).fetchone()[0]
     return {
         "hearing_badge":            hearing_badge,
         "source_placeholder_color": source_placeholder_color,
         "market_color":             market_color,
         "market_display":           market_display,
+        "unread_count":             unread_count,
         "active_page":              None,
     }
 
 
-# ── Today ─────────────────────────────────────────────────────────────────────
+# ── Inbox ─────────────────────────────────────────────────────────────────────
 
 @app.route("/")
-def today():
-    from_date     = request.args.get("from_date",     "").strip()
-    to_date       = request.args.get("to_date",       "").strip()
-    market_filter = request.args.get("market",        "").strip().upper()
+@app.route("/inbox")
+def inbox():
+    filters = {
+        "region":      request.args.get("region",      "").strip(),
+        "county":      request.args.get("county",      "").strip(),
+        "city":        request.args.get("city",        "").strip(),
+        "date":        request.args.get("date",        "last_7").strip(),
+        "source_type": request.args.get("source_type", "").strip(),
+        "status":      request.args.get("status",      "").strip(),
+        "hearings":    request.args.get("hearings",    "").strip(),
+    }
 
-    effective_from = from_date or (date.today() - timedelta(days=7)).isoformat()
-    effective_to   = to_date   or date.today().isoformat()
+    where: list = []
+    params: list = []
+
+    _apply_common_filters(where, params, filters)
+
+    status = filters["status"]
+    if status == "used":
+        where.append("b.status = 'used'")
+    elif status == "snoozed":
+        where.append("b.status = 'snoozed'")
+    elif status == "dismissed":
+        where.append("b.status = 'dismissed'")
+    elif status == "all":
+        pass  # no status filter
+    else:
+        # default: unread
+        where.append(
+            "(b.status IN ('new', 'pending')"
+            " OR (b.status = 'snoozed' AND b.snoozed_until <= datetime('now')))"
+        )
+        where.append("ei.already_covered = 0")
+
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
 
     with get_conn() as conn:
         briefs = conn.execute(
-            _brief_query_base() + """
-            WHERE (
-                (date(rc.captured_at) >= ? AND date(rc.captured_at) <= ?)
-                OR (b.hearing_date IS NOT NULL
-                    AND date(b.hearing_date) >= date('now')
-                    AND date(b.hearing_date) <= date('now', '+7 days'))
-            )
-            AND (b.status IN ('new', 'pending')
-                 OR (b.status = 'snoozed' AND b.snoozed_until <= datetime('now')))
-            AND ei.already_covered = 0
+            _brief_query_base() + f"""
+            {where_sql}
             ORDER BY ei.priority DESC, b.created_at DESC
             """,
-            (effective_from, effective_to),
+            params,
         ).fetchall()
 
-    market_counts = Counter(b["market"] or "OTHER" for b in briefs)
+    all_counties, all_cities = _geo_lookups()
+    active_filters = _active_chips("/inbox", filters, default_status="")
+
     return render_template(
-        "today.html", briefs=briefs, active_page="today",
-        from_date=effective_from, to_date=effective_to,
-        market_counts=market_counts, market_filter=market_filter,
+        "inbox.html",
+        briefs=briefs,
+        filters=filters,
+        active_filters=active_filters,
+        all_counties=all_counties,
+        all_cities=all_cities,
+        geo_json=_geo_json_for_template(all_counties, all_cities),
+        market_counts=Counter(b["market"] or "FLORIDA" for b in briefs),
+        active_page="inbox",
     )
 
 
-# ── History ───────────────────────────────────────────────────────────────────
+# ── Archive ───────────────────────────────────────────────────────────────────
 
 @app.route("/history")
-def history():
-    page       = max(1, request.args.get("page", 1, int))
-    src_type   = request.args.get("src_type",  "").strip()
-    priority   = request.args.get("priority",  "").strip()
-    status     = request.args.get("status",    "").strip()
-    board      = request.args.get("board",     "").strip()
-    from_date  = request.args.get("from_date", "").strip()
-    to_date    = request.args.get("to_date",   "").strip()
-    market     = request.args.get("market",    "").strip().upper()
+def history_redirect():
+    return redirect(url_for("archive"), 301)
 
-    filters = dict(src_type=src_type, priority=priority, status=status,
-                   board=board, from_date=from_date, to_date=to_date, market=market)
 
-    where_clauses = []
+@app.route("/archive")
+def archive():
+    page = max(1, request.args.get("page", 1, int))
+    filters = {
+        "region":      request.args.get("region",      "").strip(),
+        "county":      request.args.get("county",      "").strip(),
+        "city":        request.args.get("city",        "").strip(),
+        "date":        request.args.get("date",        "").strip(),
+        "source_type": request.args.get("source_type", "").strip(),
+        "status":      request.args.get("status",      "").strip(),
+        "hearings":    request.args.get("hearings",    "").strip(),
+        # legacy params kept for pagination URL building
+        "board":       request.args.get("board",       "").strip(),
+        "priority":    request.args.get("priority",    "").strip(),
+    }
+
+    where: list = []
     params: list = []
 
-    if src_type:
-        src_names = _load_sources_config().get(src_type, [])
-        if src_names:
-            placeholders = ",".join("?" * len(src_names))
-            where_clauses.append(f"rc.source IN ({placeholders})")
-            params.extend(src_names)
-        else:
-            where_clauses.append("1=0")   # unknown type → no results
+    _apply_common_filters(where, params, filters)
 
-    if priority:
-        where_clauses.append("ei.priority = ?")
-        params.append(int(priority))
+    # Legacy board filter
+    if filters.get("board"):
+        where.append("b.hearing_board LIKE ?")
+        params.append(f"%{filters['board']}%")
 
-    if status:
-        if status == "new":
-            where_clauses.append("b.status IN ('new', 'pending')")
-        else:
-            where_clauses.append("b.status = ?")
-            params.append(status)
+    # Legacy priority filter
+    if filters.get("priority"):
+        where.append("ei.priority = ?")
+        params.append(int(filters["priority"]))
 
-    if board:
-        where_clauses.append("b.hearing_board LIKE ?")
-        params.append(f"%{board}%")
+    status = filters["status"]
+    if status == "new":
+        where.append("b.status IN ('new', 'pending')")
+    elif status in ("used", "dismissed", "snoozed"):
+        where.append("b.status = ?")
+        params.append(status)
+    # else: "" or "all" = no status filter
 
-    if from_date:
-        where_clauses.append("date(b.created_at) >= ?")
-        params.append(from_date)
-
-    if to_date:
-        where_clauses.append("date(b.created_at) <= ?")
-        params.append(to_date)
-
-    if market:
-        where_clauses.append("ei.market = ?")
-        params.append(market)
-
-    where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
-    order_sql  = "ORDER BY b.created_at DESC"
-    offset     = (page - 1) * PER_PAGE
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+    offset = (page - 1) * PER_PAGE
 
     with get_conn() as conn:
         total = conn.execute(
-            f"SELECT COUNT(*) FROM briefs b "
-            f"JOIN extracted_items ei ON ei.id = b.extracted_item_id "
-            f"JOIN raw_captures rc ON rc.id = ei.raw_capture_id "
-            f"{where_sql}", params
+            "SELECT COUNT(*) FROM briefs b"
+            " JOIN extracted_items ei ON ei.id = b.extracted_item_id"
+            " JOIN raw_captures rc ON rc.id = ei.raw_capture_id"
+            f" {where_sql}",
+            params,
         ).fetchone()[0]
 
         briefs = conn.execute(
-            _brief_query_base() + f"{where_sql} {order_sql} LIMIT ? OFFSET ?",
-            params + [PER_PAGE, offset]
+            _brief_query_base() + f"{where_sql} ORDER BY b.created_at DESC LIMIT ? OFFSET ?",
+            params + [PER_PAGE, offset],
         ).fetchall()
 
-    with get_conn() as conn:
-        all_markets = [
-            row["market"] for row in conn.execute(
-                "SELECT DISTINCT market FROM extracted_items "
-                "WHERE market IS NOT NULL ORDER BY market"
-            ).fetchall()
-        ]
+    all_counties, all_cities = _geo_lookups()
+    active_filters = _active_chips("/archive", filters, default_status="")
 
     total_pages = max(1, math.ceil(total / PER_PAGE))
     return render_template(
-        "history.html",
+        "archive.html",
         briefs=briefs, total=total,
         page=page, total_pages=total_pages,
-        filters=filters, active_page="history",
-        all_markets=all_markets,
+        filters=filters,
+        active_filters=active_filters,
+        all_counties=all_counties,
+        all_cities=all_cities,
+        geo_json=_geo_json_for_template(all_counties, all_cities),
+        active_page="archive",
     )
 
 
@@ -303,10 +455,10 @@ def sources():
     for section in ("rss", "html_scrape", "wp_rest", "iqm2"):
         for src in cfg.get(section, []):
             stats = agg.get(src["name"])
-            last  = stats["last_captured"] if stats else None
-            total = stats["total_items"]   if stats else 0
-            recent = stats["recent_items"] if stats else 0
-            stale = bool(last and last < stale_cutoff) or (total == 0)
+            last   = stats["last_captured"] if stats else None
+            total  = stats["total_items"]   if stats else 0
+            recent = stats["recent_items"]  if stats else 0
+            stale  = bool(last and last < stale_cutoff) or (total == 0)
             rows.append({
                 "name":          src["name"],
                 "type":          section,
@@ -342,9 +494,7 @@ def coverage():
                 (like, like, COV_PER_PAGE, offset)
             ).fetchall()
         else:
-            total = conn.execute(
-                "SELECT COUNT(*) FROM coverage_index"
-            ).fetchone()[0]
+            total = conn.execute("SELECT COUNT(*) FROM coverage_index").fetchone()[0]
             entries = conn.execute(
                 "SELECT * FROM coverage_index "
                 "ORDER BY published_at DESC LIMIT ? OFFSET ?",
@@ -370,7 +520,7 @@ def brief_detail(brief_id: int):
         ).fetchone()
     if not b:
         abort(404)
-    return render_template("brief_detail.html", b=b, active_page="history")
+    return render_template("brief_detail.html", b=b, active_page="archive")
 
 
 # ── Card actions (JSON API) ───────────────────────────────────────────────────
@@ -431,6 +581,7 @@ def brief_snooze(brief_id: int):
 
 LOGS_DIR = Path(__file__).parent / "logs"
 
+
 @app.route("/logs")
 def logs():
     with get_conn() as conn:
@@ -438,7 +589,6 @@ def logs():
             "SELECT * FROM daily_log ORDER BY run_date DESC, id DESC LIMIT 30"
         ).fetchall()
 
-    # Find the most recent log file in logs/
     log_lines: list[str] = []
     log_filename: Optional[str] = None
     if LOGS_DIR.exists():
@@ -447,8 +597,7 @@ def logs():
             latest = log_files[0]
             log_filename = latest.name
             text = latest.read_text(errors="replace")
-            all_lines = text.splitlines()
-            log_lines = all_lines[-100:]  # last 100 lines
+            log_lines = text.splitlines()[-100:]
 
     return render_template(
         "logs.html",

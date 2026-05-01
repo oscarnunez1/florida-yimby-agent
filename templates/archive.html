@@ -1,0 +1,296 @@
+{% extends "base.html" %}
+{% block title %}Archive — FL YIMBY{% endblock %}
+
+{% block content %}
+<div class="page-heading">
+  <h1>Archive</h1>
+  <p class="subtitle">{{ total }} brief{{ 's' if total != 1 }}</p>
+</div>
+
+<!-- Filter bar -->
+<form class="filter-bar-geo" id="filter-form" method="get" action="/archive">
+  <!-- Region -->
+  <select id="filter-region" name="region" onchange="onRegionChange()">
+    <option value="">All Regions</option>
+    <option value="South Florida"  {{ 'selected' if filters.region == 'South Florida' }}>South Florida</option>
+    <option value="Tampa Bay"      {{ 'selected' if filters.region == 'Tampa Bay' }}>Tampa Bay</option>
+    <option value="Orlando Metro"  {{ 'selected' if filters.region == 'Orlando Metro' }}>Orlando Metro</option>
+  </select>
+
+  <!-- County -->
+  <select id="filter-county" name="county" onchange="onCountyChange()">
+    <option value="">All Counties</option>
+    {% for c in all_counties %}
+      <option value="{{ c }}" {{ 'selected' if filters.county == c }}>{{ c }}</option>
+    {% endfor %}
+  </select>
+
+  <!-- City -->
+  <select id="filter-city" name="city" onchange="this.form.submit()">
+    <option value="">All Cities</option>
+    {% for c in all_cities %}
+      <option value="{{ c }}" {{ 'selected' if filters.city == c }}>{{ c }}</option>
+    {% endfor %}
+  </select>
+
+  <!-- Date -->
+  <select name="date" onchange="this.form.submit()">
+    <option value=""        {{ 'selected' if filters.date == '' }}>All Time</option>
+    <option value="today"   {{ 'selected' if filters.date == 'today' }}>Today</option>
+    <option value="last_7"  {{ 'selected' if filters.date == 'last_7' }}>Last 7 days</option>
+    <option value="last_30" {{ 'selected' if filters.date == 'last_30' }}>Last 30 days</option>
+    <option value="last_90" {{ 'selected' if filters.date == 'last_90' }}>Last 90 days</option>
+  </select>
+
+  <!-- Source -->
+  <select name="source_type" onchange="this.form.submit()">
+    <option value=""          {{ 'selected' if filters.source_type == '' }}>All Sources</option>
+    <option value="news"      {{ 'selected' if filters.source_type == 'news' }}>News</option>
+    <option value="municipal" {{ 'selected' if filters.source_type == 'municipal' }}>Municipal</option>
+  </select>
+
+  <!-- Status -->
+  <select name="status" onchange="this.form.submit()">
+    <option value=""          {{ 'selected' if filters.status == '' }}>All</option>
+    <option value="new"       {{ 'selected' if filters.status == 'new' }}>New</option>
+    <option value="used"      {{ 'selected' if filters.status == 'used' }}>Used</option>
+    <option value="dismissed" {{ 'selected' if filters.status == 'dismissed' }}>Dismissed</option>
+    <option value="snoozed"   {{ 'selected' if filters.status == 'snoozed' }}>Snoozed</option>
+  </select>
+
+  <!-- Hearings toggle -->
+  <button type="button"
+          class="hearings-btn {{ 'active' if filters.hearings == '1' }}"
+          onclick="toggleHearings(this)">
+    ⚡ Upcoming hearings
+  </button>
+  <input type="hidden" id="hearings-hidden" name="hearings" value="{{ '1' if filters.hearings == '1' else '' }}">
+</form>
+
+<!-- Active filter chips -->
+{% if active_filters %}
+<div class="active-filters">
+  <span class="active-filters-label">Showing:</span>
+  {% for chip in active_filters %}
+    <a class="filter-chip" href="{{ chip.clear }}">{{ chip.label }} ×</a>
+  {% endfor %}
+  <a class="filter-chip filter-chip-clear" href="/archive">Clear all</a>
+</div>
+{% endif %}
+
+{% if not briefs %}
+<div class="empty-state">
+  <div class="empty-state-icon">📭</div>
+  <strong>No briefs match the current filters.</strong>
+  <p>Try adjusting the filters or run <code>python run_daily.py</code>.</p>
+</div>
+{% else %}
+
+<div class="card-grid" id="card-grid">
+{% for b in briefs %}
+{% set sclass = b.status if b.status in ('new','used','dismissed','snoozed') else 'new' %}
+{% set slabel = {'new':'New','used':'Used','dismissed':'Dismissed','snoozed':'Snoozed','pending':'New'}.get(b.status,'New') %}
+{% set mkt       = b.market or 'OTHER' %}
+{% set mkt_color = market_color(mkt) %}
+{% set badge     = hearing_badge(b.hearing_date, b.hearing_board) %}
+
+<article class="brief-card"
+         data-id="{{ b.id }}"
+         data-market="{{ mkt }}"
+         data-status="{{ b.status }}"
+         data-lede="{{ b.lede|e }}"
+         data-body="{{ b.body|e }}"
+         style="view-transition-name: card-{{ b.id }}"
+         onclick="navigateToCard(event, this)">
+
+  <!-- Three-dot menu -->
+  <div class="dot-menu">
+    <button class="dot-btn" onclick="toggleDotMenu(event, {{ b.id }})" aria-label="Actions">⋯</button>
+    <div class="dot-dropdown" id="dot-drop-{{ b.id }}" hidden>
+      <button class="dot-item" onclick="dotAction({{ b.id }}, 'use')">Mark as used</button>
+      <button class="dot-item" onclick="dotAction({{ b.id }}, 'snooze')">Snooze 24h</button>
+      <button class="dot-item" onclick="toggleDismissSub(event, {{ b.id }})">Dismiss ›</button>
+      <div class="dot-sub-items" id="dot-sub-{{ b.id }}" hidden>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'not_relevant')">Not relevant</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'already_covered')">Already covered</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'wrong_market')">Wrong market</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'low_priority')">Low priority</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'duplicate')">Duplicate</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'other')">Other</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Image or colored placeholder -->
+  {% if b.og_image_url %}
+    <img class="card-img" src="{{ b.og_image_url }}" alt="" loading="lazy">
+  {% else %}
+    <div class="card-img-placeholder" style="background:{{ source_placeholder_color(b.source) }}">
+      <span>{{ b.source }}</span>
+    </div>
+  {% endif %}
+
+  <div class="card-body">
+    <!-- Date · source meta -->
+    <div class="card-meta-line">{{ b.created_at[:10] if b.created_at else '—' }} · {{ b.source }}</div>
+
+    <!-- Tags -->
+    <div class="card-tags">
+      <span class="market-tag" style="--mc:{{ mkt_color }}">{{ market_display(mkt) }}</span>
+      {% if badge %}
+        <span class="hearing-tag {{ 'past' if 'heard' in badge }}">{{ badge }}</span>
+      {% endif %}
+      <span class="status-badge badge-{{ sclass }}">{{ slabel }}</span>
+    </div>
+
+    <!-- Headline -->
+    <div class="card-headline">{{ b.headline }}</div>
+
+    <!-- Lede excerpt -->
+    {% if b.lede %}
+      <div class="card-lede">{{ b.lede }}</div>
+    {% endif %}
+  </div>
+
+</article>
+{% endfor %}
+</div>
+
+<div class="pagination">
+  {% if page > 1 %}
+    <a href="{{ url_for('archive', page=page-1, **filters) }}">← Prev</a>
+  {% endif %}
+  {% for p in range([1, page-2]|max, [total_pages+1, page+3]|min) %}
+    <a href="{{ url_for('archive', page=p, **filters) }}" class="{{ 'current' if p == page }}">{{ p }}</a>
+  {% endfor %}
+  {% if page < total_pages %}
+    <a href="{{ url_for('archive', page=page+1, **filters) }}">Next →</a>
+  {% endif %}
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<style>
+/* Filter bar geo */
+.filter-bar-geo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.filter-bar-geo select {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  padding: 6px 28px 6px 10px;
+  border: 1px solid var(--border-medium);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  height: 34px;
+  cursor: pointer;
+  appearance: auto;
+}
+.filter-bar-geo select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(232,82,42,0.1);
+}
+.hearings-btn {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1.5px solid var(--accent);
+  color: var(--accent);
+  background: transparent;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  height: 34px;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.hearings-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+.active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.active-filters-label {
+  font-weight: 600;
+  margin-right: 2px;
+}
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  background: var(--accent-light);
+  color: var(--accent);
+  border: 1px solid #f5c5b3;
+  border-radius: 12px;
+  font-size: 12px;
+  font-family: 'DM Mono', monospace;
+  text-decoration: none;
+  cursor: pointer;
+}
+.filter-chip:hover {
+  background: #fde2d8;
+}
+.filter-chip-clear {
+  background: #f1f5f9;
+  color: var(--text-secondary);
+  border-color: var(--border-light);
+}
+.filter-chip-clear:hover {
+  background: var(--border-light);
+}
+</style>
+<script>
+var GEO = {{ geo_json|safe }};
+
+function onRegionChange() {
+  var region = document.getElementById('filter-region').value;
+  var countySelect = document.getElementById('filter-county');
+  var citySelect = document.getElementById('filter-city');
+  var validCounties = region ? (GEO.region_to_counties[region] || []) : GEO.all_counties;
+  rebuildSelect(countySelect, validCounties.slice().sort(), '');
+  rebuildSelect(citySelect, GEO.all_cities.slice().sort(), '');
+  document.getElementById('filter-form').submit();
+}
+
+function onCountyChange() {
+  var county = document.getElementById('filter-county').value;
+  var citySelect = document.getElementById('filter-city');
+  var validCities = county ? (GEO.county_to_cities[county] || []) : GEO.all_cities;
+  rebuildSelect(citySelect, validCities.slice().sort(), '');
+  document.getElementById('filter-form').submit();
+}
+
+function rebuildSelect(selectEl, options, currentVal) {
+  while (selectEl.options.length > 1) selectEl.remove(1);
+  options.forEach(function(val) {
+    var opt = new Option(val, val);
+    if (val === currentVal) opt.selected = true;
+    selectEl.add(opt);
+  });
+}
+
+function toggleHearings(btn) {
+  var inp = document.getElementById('hearings-hidden');
+  var isActive = btn.classList.contains('active');
+  btn.classList.toggle('active', !isActive);
+  inp.value = isActive ? '' : '1';
+  document.getElementById('filter-form').submit();
+}
+</script>
+{% endblock %}

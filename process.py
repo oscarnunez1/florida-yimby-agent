@@ -145,6 +145,99 @@ FLORIDA_CITIES: dict[str, str] = {
 # Sort longest key first so "miami beach" matches before "miami"
 _SORTED_CITIES = sorted(FLORIDA_CITIES.items(), key=lambda x: len(x[0]), reverse=True)
 
+# City → county mapping (uses market/city values, i.e. the values from FLORIDA_CITIES)
+CITY_TO_COUNTY: dict[str, str] = {
+    "MIAMI":             "Miami-Dade",
+    "MIAMI BEACH":       "Miami-Dade",
+    "CORAL GABLES":      "Miami-Dade",
+    "HIALEAH":           "Miami-Dade",
+    "AVENTURA":          "Miami-Dade",
+    "DORAL":             "Miami-Dade",
+    "SUNNY ISLES":       "Miami-Dade",
+    "BAL HARBOUR":       "Miami-Dade",
+    "SURFSIDE":          "Miami-Dade",
+    "NORTH MIAMI":       "Miami-Dade",
+    "NORTH MIAMI BEACH": "Miami-Dade",
+    "SWEETWATER":        "Miami-Dade",
+    "CUTLER BAY":        "Miami-Dade",
+    "PALMETTO BAY":      "Miami-Dade",
+    "PINECREST":         "Miami-Dade",
+    "SOUTH MIAMI":       "Miami-Dade",
+    "KEY BISCAYNE":      "Miami-Dade",
+    "HOMESTEAD":         "Miami-Dade",
+    "OPA-LOCKA":         "Miami-Dade",
+    "FT. LAUDERDALE":    "Broward",
+    "MIRAMAR":           "Broward",
+    "PEMBROKE PINES":    "Broward",
+    "HOLLYWOOD":         "Broward",
+    "HALLANDALE":        "Broward",
+    "HALLANDALE BEACH":  "Broward",
+    "POMPANO BEACH":     "Broward",
+    "DEERFIELD BEACH":   "Broward",
+    "CORAL SPRINGS":     "Broward",
+    "SUNRISE":           "Broward",
+    "PLANTATION":        "Broward",
+    "DAVIE":             "Broward",
+    "WESTON":            "Broward",
+    "LAUDERHILL":        "Broward",
+    "TAMARAC":           "Broward",
+    "MARGATE":           "Broward",
+    "COCONUT CREEK":     "Broward",
+    "OAKLAND PARK":      "Broward",
+    "WILTON MANORS":     "Broward",
+    "DANIA BEACH":       "Broward",
+    "COOPER CITY":       "Broward",
+    "LIGHTHOUSE POINT":  "Broward",
+    "WEST PALM BEACH":   "Palm Beach",
+    "BOCA RATON":        "Palm Beach",
+    "DELRAY BEACH":      "Palm Beach",
+    "BOYNTON BEACH":     "Palm Beach",
+    "LAKE WORTH":        "Palm Beach",
+    "PALM BEACH":        "Palm Beach",
+    "PB GARDENS":        "Palm Beach",
+    "JUPITER":           "Palm Beach",
+    "RIVIERA BEACH":     "Palm Beach",
+    "WELLINGTON":        "Palm Beach",
+    "TAMPA":             "Hillsborough",
+    "ST. PETE":          "Pinellas",
+    "CLEARWATER":        "Pinellas",
+    "LARGO":             "Pinellas",
+    "BRADENTON":         "Manatee",
+    "SARASOTA":          "Sarasota",
+    "ORLANDO":           "Orange",
+    "WINTER PARK":       "Orange",
+    "KISSIMMEE":         "Osceola",
+    "SANFORD":           "Seminole",
+    "JACKSONVILLE":      "Duval",
+    "FT. MYERS":         "Lee",
+    "CAPE CORAL":        "Lee",
+    "NAPLES":            "Collier",
+    "GAINESVILLE":       "Alachua",
+    "TALLAHASSEE":       "Leon",
+    "DAYTONA BEACH":     "Volusia",
+    "PORT ST. LUCIE":    "St. Lucie",
+    "VERO BEACH":        "Indian River",
+    "PENSACOLA":         "Escambia",
+}
+
+COUNTY_TO_REGION: dict[str, str] = {
+    "Miami-Dade":   "South Florida",
+    "Broward":      "South Florida",
+    "Palm Beach":   "South Florida",
+    "Monroe":       "South Florida",
+    "Hillsborough": "Tampa Bay",
+    "Pinellas":     "Tampa Bay",
+    "Manatee":      "Tampa Bay",
+    "Sarasota":     "Tampa Bay",
+    "Pasco":        "Tampa Bay",
+    "Hernando":     "Tampa Bay",
+    "Orange":       "Orlando Metro",
+    "Osceola":      "Orlando Metro",
+    "Seminole":     "Orlando Metro",
+    "Lake":         "Orlando Metro",
+    "Volusia":      "Orlando Metro",
+}
+
 
 def detect_market(city_field: Optional[str], address_field: Optional[str],
                   hearing_board: Optional[str] = None) -> str:
@@ -279,6 +372,8 @@ def cmd_classify(limit: Optional[int], dry_run: bool, ids: Optional[list] = None
             data.get("address"),
             hearing_board=data.get("hearing_board"),
         )
+        county = CITY_TO_COUNTY.get(market)
+        region = COUNTY_TO_REGION.get(county) if county else None
 
         log.info(
             "id=%-4d  dev=%-5s  fl=%-5s  priority=%-6s  market=%-15s  [%s] %s",
@@ -294,8 +389,8 @@ def cmd_classify(limit: Optional[int], dry_run: bool, ids: Optional[list] = None
                         developer, architect, units, height,
                         status, event_type, priority,
                         is_development_item, florida_relevance, extracted_data_json,
-                        market
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        market, county, region
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         capture_id,
@@ -313,6 +408,8 @@ def cmd_classify(limit: Optional[int], dry_run: bool, ids: Optional[list] = None
                         1 if fl_rel else 0,
                         clean,
                         market,
+                        county,
+                        region,
                     ),
                 )
                 conn.execute("UPDATE raw_captures SET processed = 1 WHERE id = ?", (capture_id,))
@@ -593,7 +690,7 @@ def cmd_update_markets() -> None:
         ).fetchall()
 
     log.info("Re-detecting markets for %d extracted items", len(rows))
-    updates: list[tuple[str, int]] = []
+    updates: list[tuple[str, Optional[str], Optional[str], int]] = []
 
     for row in rows:
         data: dict = {}
@@ -604,11 +701,13 @@ def cmd_update_markets() -> None:
                 pass
         hearing_board = data.get("hearing_board")
         market = detect_market(row["city"], row["address"], hearing_board=hearing_board)
-        updates.append((market, row["id"]))
+        county = CITY_TO_COUNTY.get(market)
+        region = COUNTY_TO_REGION.get(county) if county else None
+        updates.append((market, county, region, row["id"]))
 
     with get_conn() as conn:
         conn.executemany(
-            "UPDATE extracted_items SET market = ? WHERE id = ?", updates
+            "UPDATE extracted_items SET market=?, county=?, region=? WHERE id=?", updates
         )
 
     log.info("Done — %d market values updated", len(updates))

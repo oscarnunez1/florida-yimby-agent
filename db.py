@@ -105,6 +105,8 @@ def init_db() -> None:
             ("briefs",          "hearing_board",        "TEXT"),
             ("briefs",          "confirmed_vs_pending", "TEXT"),
             ("briefs",          "snoozed_until",        "TEXT"),
+            ("extracted_items", "county",               "TEXT"),
+            ("extracted_items", "region",               "TEXT"),
         ]
 
         conn.executescript("""
@@ -132,6 +134,14 @@ def init_db() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_extracted_market"
             " ON extracted_items(market)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_extracted_county"
+            " ON extracted_items(county)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_extracted_region"
+            " ON extracted_items(region)"
         )
 
         # Backfill market for any extracted_items where market IS NULL.

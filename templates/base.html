@@ -108,6 +108,18 @@
 
     .nav-icon { font-size: 15px; width: 20px; text-align: center; }
 
+    .nav-badge {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      font-weight: 500;
+      background: var(--accent);
+      color: #fff;
+      padding: 1px 6px;
+      border-radius: 10px;
+      margin-left: auto;
+      line-height: 1.6;
+    }
+
     /* ── Main ── */
     .main { margin-left: var(--sidebar-w); min-height: 100vh; }
 
@@ -796,11 +808,12 @@
     <a href="/" class="sidebar-wordmark">Florida YIMBY Intel</a>
   </div>
   <div class="sidebar-nav">
-    <a href="/" class="nav-link {{ 'active' if active_page == 'today' }}">
-      <span class="nav-icon">📰</span>Today
+    <a href="/inbox" class="nav-link {{ 'active' if active_page == 'inbox' }}">
+      <span class="nav-icon">📰</span>Inbox
+      {% if unread_count %}<span class="nav-badge">{{ unread_count }}</span>{% endif %}
     </a>
-    <a href="/history" class="nav-link {{ 'active' if active_page == 'history' }}">
-      <span class="nav-icon">📂</span>History
+    <a href="/archive" class="nav-link {{ 'active' if active_page == 'archive' }}">
+      <span class="nav-icon">📂</span>Archive
     </a>
     <a href="/sources" class="nav-link {{ 'active' if active_page == 'sources' }}">
       <span class="nav-icon">📡</span>Sources
