@@ -10,11 +10,10 @@ Commands:
 import argparse
 import json
 import logging
+import re
 import sys
 from pathlib import Path
 from typing import Optional
-
-import re
 
 import anthropic
 import httpx
@@ -24,6 +23,7 @@ from rapidfuzz import process as rfprocess
 from selectolax.parser import HTMLParser
 
 from db import get_conn, init_db
+from utils import _strip_fences
 
 load_dotenv()
 
@@ -36,55 +36,135 @@ MAX_TOKENS = 1024
 
 DRAFT_PROMPT_PATH = Path(__file__).parent / "prompts" / "draft_brief.md"
 WP_API_URL = "https://floridayimby.com/wp-json/wp/v2/posts"
-
-# ── Market detection ──────────────────────────────────────────────────────────
-
-_MARKET_PATTERNS: list[tuple[str, list[str]]] = [
-    ("MIAMI",           ["miami"]),
-    ("TAMPA",           ["tampa"]),
-    ("ST. PETE",        ["st. pete", "st pete", "saint pete", "pinellas", "clearwater", "dunedin", "largo"]),
-    ("ORLANDO",         ["orlando", "kissimmee", "sanford", "lake nona"]),
-    ("WEST PALM",       ["west palm", "palm beach", "boca raton", "delray beach", "boynton beach"]),
-    ("FORT LAUDERDALE", ["fort lauderdale", "ft. lauderdale", "ft lauderdale"]),
-    ("BROWARD",         ["broward", "pompano", "deerfield beach", "coral springs", "davie, fl", "miramar, fl",
-                          "pembroke pines", "hallandale", "sunrise, fl", "plantation, fl", "tamarac", "weston, fl"]),
-    ("STATEWIDE",       ["statewide"]),
-]
-
-_STATEWIDE_SOURCES = {"floridian development"}
-
-
-def detect_market(city: Optional[str], address: Optional[str],
-                  source: Optional[str] = None,
-                  hearing_board: Optional[str] = None) -> str:
-    """Return one of the canonical market values for an extracted item."""
-    # All current IQM2 boards are Miami
-    if hearing_board:
-        return "MIAMI"
-
-    text = " ".join(x.lower() for x in [city or "", address or ""] if x).strip()
-
-    for market, patterns in _MARKET_PATTERNS:
-        if any(p in text for p in patterns):
-            return market
-
-    if source and source.lower() in _STATEWIDE_SOURCES:
-        return "STATEWIDE"
-
-    return "OTHER"
 HTML_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 REQUEST_TIMEOUT = 20
 ARTICLE_BODY_CHARS = 2000  # enough for developer/architect to appear; keeps token cost low
 
+# ── Market detection ──────────────────────────────────────────────────────────
 
-def _strip_fences(text: str) -> str:
-    """Remove markdown code fences that models sometimes add despite instructions."""
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[-1]  # drop opening fence line
-        if text.endswith("```"):
-            text = text[: text.rfind("```")]
-    return text.strip()
+FLORIDA_CITIES: dict[str, str] = {
+    # Miami-Dade neighbourhoods / cities
+    "brickell":           "MIAMI",
+    "edgewater":          "MIAMI",
+    "wynwood":            "MIAMI",
+    "overtown":           "MIAMI",
+    "little havana":      "MIAMI",
+    "coconut grove":      "MIAMI",
+    "downtown miami":     "MIAMI",
+    "miami beach":        "MIAMI BEACH",
+    "coral gables":       "CORAL GABLES",
+    "hialeah":            "HIALEAH",
+    "homestead":          "HOMESTEAD",
+    "aventura":           "AVENTURA",
+    "doral":              "DORAL",
+    "sunny isles beach":  "SUNNY ISLES",
+    "sunny isles":        "SUNNY ISLES",
+    "bal harbour":        "BAL HARBOUR",
+    "surfside":           "SURFSIDE",
+    "north miami beach":  "NORTH MIAMI BEACH",
+    "north miami":        "NORTH MIAMI",
+    "opa-locka":          "OPA-LOCKA",
+    "sweetwater":         "SWEETWATER",
+    "cutler bay":         "CUTLER BAY",
+    "palmetto bay":       "PALMETTO BAY",
+    "pinecrest":          "PINECREST",
+    "south miami":        "SOUTH MIAMI",
+    "key biscayne":       "KEY BISCAYNE",
+    "miami":              "MIAMI",
+    # Broward
+    "fort lauderdale":    "FT. LAUDERDALE",
+    "ft. lauderdale":     "FT. LAUDERDALE",
+    "ft lauderdale":      "FT. LAUDERDALE",
+    "miramar":            "MIRAMAR",
+    "pembroke pines":     "PEMBROKE PINES",
+    "hallandale beach":   "HALLANDALE BEACH",
+    "hallandale":         "HALLANDALE",
+    "pompano beach":      "POMPANO BEACH",
+    "deerfield beach":    "DEERFIELD BEACH",
+    "coral springs":      "CORAL SPRINGS",
+    "sunrise":            "SUNRISE",
+    "plantation":         "PLANTATION",
+    "davie":              "DAVIE",
+    "weston":             "WESTON",
+    "cooper city":        "COOPER CITY",
+    "dania beach":        "DANIA BEACH",
+    "lauderhill":         "LAUDERHILL",
+    "tamarac":            "TAMARAC",
+    "margate":            "MARGATE",
+    "coconut creek":      "COCONUT CREEK",
+    "lighthouse point":   "LIGHTHOUSE POINT",
+    "oakland park":       "OAKLAND PARK",
+    "wilton manors":      "WILTON MANORS",
+    "hollywood":          "HOLLYWOOD",
+    # Palm Beach
+    "west palm beach":    "WEST PALM BEACH",
+    "boca raton":         "BOCA RATON",
+    "delray beach":       "DELRAY BEACH",
+    "boynton beach":      "BOYNTON BEACH",
+    "lake worth":         "LAKE WORTH",
+    "palm beach gardens": "PB GARDENS",
+    "palm beach":         "PALM BEACH",
+    "jupiter":            "JUPITER",
+    "riviera beach":      "RIVIERA BEACH",
+    "singer island":      "RIVIERA BEACH",
+    "wellington":         "WELLINGTON",
+    # Tampa Bay
+    "ybor city":          "TAMPA",
+    "harbour island":     "TAMPA",
+    "channelside":        "TAMPA",
+    "water street":       "TAMPA",
+    "st. petersburg":     "ST. PETE",
+    "st petersburg":      "ST. PETE",
+    "saint petersburg":   "ST. PETE",
+    "clearwater":         "CLEARWATER",
+    "largo":              "LARGO",
+    "bradenton":          "BRADENTON",
+    "sarasota":           "SARASOTA",
+    "tampa":              "TAMPA",
+    # Orlando
+    "winter park":        "WINTER PARK",
+    "lake nona":          "ORLANDO",
+    "downtown orlando":   "ORLANDO",
+    "kissimmee":          "KISSIMMEE",
+    "sanford":            "SANFORD",
+    "orlando":            "ORLANDO",
+    # Other Florida
+    "jacksonville":       "JACKSONVILLE",
+    "fort myers":         "FT. MYERS",
+    "cape coral":         "CAPE CORAL",
+    "naples":             "NAPLES",
+    "gainesville":        "GAINESVILLE",
+    "tallahassee":        "TALLAHASSEE",
+    "ocala":              "OCALA",
+    "daytona beach":      "DAYTONA BEACH",
+    "port st. lucie":     "PORT ST. LUCIE",
+    "vero beach":         "VERO BEACH",
+    "pensacola":          "PENSACOLA",
+}
+
+# Sort longest key first so "miami beach" matches before "miami"
+_SORTED_CITIES = sorted(FLORIDA_CITIES.items(), key=lambda x: len(x[0]), reverse=True)
+
+
+def detect_market(city_field: Optional[str], address_field: Optional[str],
+                  hearing_board: Optional[str] = None) -> str:
+    """Return city-level market for an extracted item."""
+    if hearing_board:
+        return "MIAMI"
+    if city_field:
+        cl = city_field.lower().strip()
+        if cl in FLORIDA_CITIES:
+            return FLORIDA_CITIES[cl]
+        for key, val in _SORTED_CITIES:
+            if key in cl:
+                return val
+    if address_field:
+        al = address_field.lower()
+        for key, val in _SORTED_CITIES:
+            if key in al:
+                return val
+    return "FLORIDA"
+
 
 fmt = logging.Formatter("%(asctime)s  %(levelname)-8s  %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 
@@ -197,7 +277,6 @@ def cmd_classify(limit: Optional[int], dry_run: bool, ids: Optional[list] = None
         market = detect_market(
             data.get("city"),
             data.get("address"),
-            source=source,
             hearing_board=data.get("hearing_board"),
         )
 
@@ -504,6 +583,37 @@ def cmd_draft_briefs(limit: Optional[int]) -> None:
     log.info("Done — %d briefs drafted, %d skipped", ok, skipped)
 
 
+# ── update markets ────────────────────────────────────────────────────────────
+
+def cmd_update_markets() -> None:
+    """Re-run market detection on all extracted_items and update the market column."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, city, address, extracted_data_json FROM extracted_items"
+        ).fetchall()
+
+    log.info("Re-detecting markets for %d extracted items", len(rows))
+    updates: list[tuple[str, int]] = []
+
+    for row in rows:
+        data: dict = {}
+        if row["extracted_data_json"]:
+            try:
+                data = json.loads(row["extracted_data_json"])
+            except Exception:
+                pass
+        hearing_board = data.get("hearing_board")
+        market = detect_market(row["city"], row["address"], hearing_board=hearing_board)
+        updates.append((market, row["id"]))
+
+    with get_conn() as conn:
+        conn.executemany(
+            "UPDATE extracted_items SET market = ? WHERE id = ?", updates
+        )
+
+    log.info("Done — %d market values updated", len(updates))
+
+
 # ── coverage index ingestion ──────────────────────────────────────────────────
 
 def _fetch_wp_api_page(page: int) -> tuple[list[dict], int]:
@@ -685,6 +795,8 @@ def main() -> None:
     p_draft.add_argument("--limit", type=int, default=None, metavar="N",
                          help="Draft at most N briefs per run")
 
+    sub.add_parser("update-markets", help="Re-run city-level market detection on all extracted_items")
+
     args = parser.parse_args()
 
     if args.command == "status":
@@ -698,6 +810,8 @@ def main() -> None:
         cmd_dedup()
     elif args.command == "draft-briefs":
         cmd_draft_briefs(limit=args.limit)
+    elif args.command == "update-markets":
+        cmd_update_markets()
 
 
 if __name__ == "__main__":

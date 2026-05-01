@@ -2,28 +2,28 @@
 {% block title %}History — FL YIMBY{% endblock %}
 {% block content %}
 <div class="page-heading">
-<h1>History</h1>
-<p class="subtitle">All briefs · {{ total }} total</p>
+  <h1>History</h1>
+  <p class="subtitle">All briefs · {{ total }} total</p>
 </div>
 
 {% set filters_active = filters.src_type or filters.priority or filters.status or filters.board or filters.from_date or filters.to_date or filters.market %}
 
 <details class="filter-details" {% if filters_active %}open{% endif %}>
-  <summary class="filter-toggle">
-    <span>Filters</span>
+  <summary class="filter-summary">
+    Filters
     {% if filters_active %}<span class="filter-active-badge">Active</span>{% endif %}
-    <span class="filter-chevron">▾</span>
+    <span style="margin-left:auto;font-size:12px;color:var(--text-muted)">▾</span>
   </summary>
 
-  <form class="filters" method="get" action="/history">
+  <form class="filter-bar" method="get" action="/history" style="margin-top:12px">
     <div class="filter-group">
       <label>Source type</label>
       <select name="src_type">
         <option value="">All</option>
-        <option value="rss"        {{ 'selected' if filters.src_type == 'rss' }}>News (RSS)</option>
-        <option value="iqm2"       {{ 'selected' if filters.src_type == 'iqm2' }}>Municipal (IQM2)</option>
-        <option value="html_scrape"{{ 'selected' if filters.src_type == 'html_scrape' }}>HTML scrape</option>
-        <option value="wp_rest"    {{ 'selected' if filters.src_type == 'wp_rest' }}>WP REST</option>
+        <option value="rss"         {{ 'selected' if filters.src_type == 'rss' }}>News (RSS)</option>
+        <option value="iqm2"        {{ 'selected' if filters.src_type == 'iqm2' }}>Municipal (IQM2)</option>
+        <option value="html_scrape" {{ 'selected' if filters.src_type == 'html_scrape' }}>HTML scrape</option>
+        <option value="wp_rest"     {{ 'selected' if filters.src_type == 'wp_rest' }}>WP REST</option>
       </select>
     </div>
     <div class="filter-group">
@@ -49,17 +49,14 @@
       <label>Market</label>
       <select name="market">
         <option value="">All</option>
-        {% for mkt in PRIMARY_MARKETS %}
-        <option value="{{ mkt }}" {{ 'selected' if filters.market == mkt }}>{{ market_display(mkt) }}</option>
+        {% for mkt in all_markets %}
+          <option value="{{ mkt }}" {{ 'selected' if filters.market == mkt }}>{{ market_display(mkt) }}</option>
         {% endfor %}
-        <option value="BROWARD"   {{ 'selected' if filters.market == 'BROWARD' }}>Broward</option>
-        <option value="STATEWIDE" {{ 'selected' if filters.market == 'STATEWIDE' }}>Statewide</option>
-        <option value="OTHER"     {{ 'selected' if filters.market == 'OTHER' }}>Other</option>
       </select>
     </div>
     <div class="filter-group">
       <label>Board</label>
-      <input name="board" value="{{ filters.board }}" placeholder="e.g. UDRB">
+      <input name="board" value="{{ filters.board }}" placeholder="e.g. UDRB" style="width:120px">
     </div>
     <div class="filter-group">
       <label>From</label>
@@ -69,7 +66,7 @@
       <label>To</label>
       <input type="date" name="to_date" value="{{ filters.to_date }}">
     </div>
-    <div class="filter-group" style="justify-content:flex-end">
+    <div class="filter-group">
       <label>&nbsp;</label>
       <button type="submit" class="btn btn-primary">Filter</button>
     </div>
@@ -77,39 +74,71 @@
 </details>
 
 {% if not briefs %}
-<div class="empty"><div class="empty-icon">🔍</div>No briefs match the current filters.</div>
+<div class="empty-state">
+  <div class="empty-state-icon">🔍</div>
+  <strong>No briefs match the current filters.</strong>
+</div>
 {% else %}
-<div class="table-wrap">
-<table>
-  <thead>
-    <tr>
-      <th>Date</th>
-      <th>Headline</th>
-      <th>Source</th>
-      <th>Priority</th>
-      <th>Status</th>
-      <th>Accuracy</th>
-    </tr>
-  </thead>
-  <tbody>
-  {% for b in briefs %}
-  {% set pclass = {3:'high',2:'medium',1:'low'}.get(b.priority, 'low') %}
-  {% set sclass = b.status if b.status in ('new','used','dismissed','snoozed') else 'new' %}
-  {% set slabel = {'new':'New','used':'Used','dismissed':'Dismissed','snoozed':'Snoozed','pending':'New'}.get(b.status, 'New') %}
-  <tr>
-    <td style="white-space:nowrap;color:#64748b">{{ b.created_at[:10] if b.created_at else '—' }}</td>
-    <td><a href="/briefs/{{ b.id }}">{{ b.headline }}</a>
-      {% set badge = hearing_badge(b.hearing_date, b.hearing_board) %}
-      {% if badge %}<br><span class="hearing-badge {{ 'past' if 'heard' in badge else '' }}" style="margin:4px 0 0;display:inline-block">{{ badge }}</span>{% endif %}
-    </td>
-    <td style="color:#64748b;white-space:nowrap">{{ b.source }}</td>
-    <td><span class="badge badge-{{ pclass }}">{{ pclass|upper }}</span></td>
-    <td><span class="badge badge-{{ sclass }}">{{ slabel }}</span></td>
-    <td style="color:#94a3b8">{{ b.accuracy_score|int if b.accuracy_score else '—' }}</td>
-  </tr>
-  {% endfor %}
-  </tbody>
-</table>
+
+<div class="card-grid">
+{% for b in briefs %}
+{% set sclass = b.status if b.status in ('new','used','dismissed','snoozed') else 'new' %}
+{% set slabel = {'new':'New','used':'Used','dismissed':'Dismissed','snoozed':'Snoozed','pending':'New'}.get(b.status,'New') %}
+{% set mkt       = b.market or 'OTHER' %}
+{% set mkt_color = market_color(mkt) %}
+{% set badge     = hearing_badge(b.hearing_date, b.hearing_board) %}
+
+<article class="brief-card"
+         data-id="{{ b.id }}"
+         data-market="{{ mkt }}"
+         data-status="{{ b.status }}"
+         data-lede="{{ b.lede|e }}"
+         data-body="{{ b.body|e }}"
+         style="view-transition-name: card-{{ b.id }}"
+         onclick="navigateToCard(event, this)">
+
+  <div class="dot-menu">
+    <button class="dot-btn" onclick="toggleDotMenu(event, {{ b.id }})" aria-label="Actions">⋯</button>
+    <div class="dot-dropdown" id="dot-drop-{{ b.id }}" hidden>
+      <button class="dot-item" onclick="dotAction({{ b.id }}, 'use')">Mark as used</button>
+      <button class="dot-item" onclick="dotAction({{ b.id }}, 'snooze')">Snooze 24h</button>
+      <button class="dot-item" onclick="toggleDismissSub(event, {{ b.id }})">Dismiss ›</button>
+      <div class="dot-sub-items" id="dot-sub-{{ b.id }}" hidden>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'not_relevant')">Not relevant</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'already_covered')">Already covered</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'wrong_market')">Wrong market</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'low_priority')">Low priority</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'duplicate')">Duplicate</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'other')">Other</button>
+      </div>
+    </div>
+  </div>
+
+  {% if b.og_image_url %}
+    <img class="card-img" src="{{ b.og_image_url }}" alt="" loading="lazy">
+  {% else %}
+    <div class="card-img-placeholder" style="background:{{ source_placeholder_color(b.source) }}">
+      <span>{{ b.source }}</span>
+    </div>
+  {% endif %}
+
+  <div class="card-body">
+    <div class="card-meta-line">{{ b.created_at[:10] if b.created_at else '—' }} · {{ b.source }}</div>
+    <div class="card-tags">
+      <span class="market-tag" style="--mc:{{ mkt_color }}">{{ market_display(mkt) }}</span>
+      {% if badge %}
+        <span class="hearing-tag {{ 'past' if 'heard' in badge }}">{{ badge }}</span>
+      {% endif %}
+      <span class="status-badge badge-{{ sclass }}">{{ slabel }}</span>
+    </div>
+    <div class="card-headline">{{ b.headline }}</div>
+    {% if b.lede %}
+      <div class="card-lede">{{ b.lede }}</div>
+    {% endif %}
+  </div>
+
+</article>
+{% endfor %}
 </div>
 
 <div class="pagination">
@@ -123,5 +152,8 @@
     <a href="{{ url_for('history', page=page+1, **filters) }}">Next →</a>
   {% endif %}
 </div>
+
 {% endif %}
 {% endblock %}
+
+{% block scripts %}{% endblock %}

@@ -7,15 +7,14 @@
 </div>
 
 <!-- Market filter pills -->
-<div class="market-pills" id="market-pills">
-  <button class="market-pill"
+<div class="market-pills">
+  <button class="market-pill active"
           data-market="ALL"
-          style="--mc: var(--navy-mid)"
+          style="--mc: var(--accent)"
           onclick="filterByMarket('ALL')">
     ALL <span class="pill-count">({{ briefs|length }})</span>
   </button>
-  {% for mkt in PRIMARY_MARKETS %}
-  {% set cnt = market_counts.get(mkt, 0) %}
+  {% for mkt, cnt in market_counts.items()|sort(attribute='1', reverse=True) %}
   <button class="market-pill"
           data-market="{{ mkt }}"
           style="--mc: {{ market_color(mkt) }}"
@@ -26,7 +25,7 @@
 </div>
 
 <!-- Date range filter -->
-<form class="today-filter" method="get" action="/" id="today-filter-form">
+<form class="filter-bar" method="get" action="/">
   <div class="filter-group">
     <label>From</label>
     <input type="date" name="from_date" value="{{ from_date }}">
@@ -35,189 +34,132 @@
     <label>To</label>
     <input type="date" name="to_date" value="{{ to_date }}">
   </div>
-  <!-- market preserved across date-filter submits -->
   <input type="hidden" name="market" id="form-market-input" value="{{ market_filter }}">
-  <div class="filter-group" style="justify-content:flex-end">
+  <div class="filter-group">
     <label>&nbsp;</label>
     <button type="submit" class="btn btn-primary">Filter</button>
   </div>
 </form>
 
 {% if not briefs %}
-<div class="empty">
-  <div class="empty-icon">📭</div>
-  No briefs for this date range.<br>
-  Run <code>python run_daily.py</code> to generate new ones.
+<div class="empty-state">
+  <div class="empty-state-icon">📭</div>
+  <strong>No briefs for this date range.</strong>
+  <p>Run <code>python run_daily.py</code> to generate new ones.</p>
 </div>
-{% endif %}
+{% else %}
 
-{% set priority_tips = {
-  'high':   'Newly posted municipal agenda packet, or major approval/filing.',
-  'medium': 'Active development filing, permit, or construction update.',
-  'low':    'Background item, portfolio entry, or minor activity.'
-} %}
-
+<div class="card-grid" id="card-grid">
 {% for b in briefs %}
-{% set badge       = hearing_badge(b.hearing_date, b.hearing_board) %}
-{% set pkey        = {3:'high', 2:'medium', 1:'low'}.get(b.priority, 'low') %}
-{% set sclass      = b.status if b.status in ('new','used','dismissed','snoozed') else 'new' %}
-{% set slabel      = {'new':'New','used':'Used','dismissed':'Dismissed','snoozed':'Snoozed','pending':'New'}.get(b.status,'New') %}
-{% set thumb_color = source_placeholder_color(b.source) %}
-{% set mkt         = b.market or 'OTHER' %}
-{% set mkt_color   = market_color(mkt) %}
+{% set sclass = b.status if b.status in ('new','used','dismissed','snoozed') else 'new' %}
+{% set slabel = {'new':'New','used':'Used','dismissed':'Dismissed','snoozed':'Snoozed','pending':'New'}.get(b.status,'New') %}
+{% set mkt       = b.market or 'OTHER' %}
+{% set mkt_color = market_color(mkt) %}
+{% set badge     = hearing_badge(b.hearing_date, b.hearing_board) %}
+{% set pub_date  = b.published_at[:10] if b.published_at else (b.captured_at[:10] if b.captured_at else '') %}
 
-<div class="card card-redesign pri-{{ pkey }}"
-     data-id="{{ b.id }}"
-     data-market="{{ mkt }}"
-     data-lede="{{ b.lede|e }}"
-     data-body="{{ b.body|e }}">
+<article class="brief-card"
+         data-id="{{ b.id }}"
+         data-market="{{ mkt }}"
+         data-status="{{ b.status }}"
+         data-lede="{{ b.lede|e }}"
+         data-body="{{ b.body|e }}"
+         style="view-transition-name: card-{{ b.id }}"
+         onclick="navigateToCard(event, this)">
 
-  <div class="card-header">
-    <!-- Thumbnail or colored placeholder -->
-    <div class="card-thumb">
-      {% if b.og_image_url %}
-        <img src="{{ b.og_image_url }}" alt="" loading="lazy">
-      {% else %}
-        <div class="card-thumb-placeholder" style="background:{{ thumb_color }}"></div>
-      {% endif %}
-    </div>
-
-    <!-- Content -->
-    <div class="card-content">
-      <div class="card-meta-row">
-        <div class="card-meta">
-          <span class="badge badge-{{ pkey }}">
-            {{ pkey|upper }}
-            <span class="priority-help" title="{{ priority_tips[pkey] }}">
-              (?)
-              <span class="priority-tooltip-text">{{ priority_tips[pkey] }}</span>
-            </span>
-          </span>
-          <span class="badge badge-{{ sclass }} status-badge">{{ slabel }}</span>
-          <!-- Market badge: clicking filters to this market -->
-          <button class="market-badge"
-                  style="--mc: {{ mkt_color }}"
-                  data-market="{{ mkt }}"
-                  onclick="event.stopPropagation(); filterByMarket('{{ mkt }}')">
-            {{ market_display(mkt) }}
-          </button>
-          <span class="card-source">{{ b.source }}</span>
-        </div>
-
-        <!-- Three-dot menu -->
-        <div class="dot-menu" data-id="{{ b.id }}">
-          <button class="dot-menu-btn" onclick="toggleDotMenu(event, {{ b.id }})" aria-label="Actions">⋯</button>
-          <div class="dot-menu-dropdown" id="dot-{{ b.id }}" hidden>
-            <button class="dot-item" onclick="dotAction({{ b.id }}, 'use')">Mark as used</button>
-            <button class="dot-item" onclick="toggleDismissSub(event, {{ b.id }})">Dismiss ›</button>
-            <div class="dot-sub" id="dot-sub-{{ b.id }}" hidden>
-              <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'not_relevant')">Not relevant</button>
-              <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'already_covered')">Already covered</button>
-              <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'wrong_market')">Wrong market</button>
-              <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'low_priority')">Low priority</button>
-              <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'duplicate')">Duplicate</button>
-              <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'other')">Other</button>
-            </div>
-            <button class="dot-item" onclick="dotAction({{ b.id }}, 'snooze')">Snooze 24h</button>
-          </div>
-        </div>
-      </div>
-
-      {% if badge %}
-        <div class="hearing-badge {{ 'past' if 'heard' in badge }}">
-          {{ '🕐' if 'heard' not in badge else '🕒' }} {{ badge }}
-        </div>
-      {% endif %}
-
-      <div class="card-headline">{{ b.headline }}</div>
-
-      <div class="card-dates">
-        <span>Published: {{ b.published_at[:10] if b.published_at else 'unknown' }}</span>
-        <span>Captured: {{ b.captured_at[:10] if b.captured_at else '—' }}</span>
+  <!-- Three-dot menu -->
+  <div class="dot-menu">
+    <button class="dot-btn" onclick="toggleDotMenu(event, {{ b.id }})" aria-label="Actions">⋯</button>
+    <div class="dot-dropdown" id="dot-drop-{{ b.id }}" hidden>
+      <button class="dot-item" onclick="dotAction({{ b.id }}, 'use')">Mark as used</button>
+      <button class="dot-item" onclick="dotAction({{ b.id }}, 'snooze')">Snooze 24h</button>
+      <button class="dot-item" onclick="toggleDismissSub(event, {{ b.id }})">Dismiss ›</button>
+      <div class="dot-sub-items" id="dot-sub-{{ b.id }}" hidden>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'not_relevant')">Not relevant</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'already_covered')">Already covered</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'wrong_market')">Wrong market</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'low_priority')">Low priority</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'duplicate')">Duplicate</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'other')">Other</button>
       </div>
     </div>
   </div>
+
+  <!-- Image or colored placeholder -->
+  {% if b.og_image_url %}
+    <img class="card-img" src="{{ b.og_image_url }}" alt="" loading="lazy">
+  {% else %}
+    <div class="card-img-placeholder" style="background:{{ source_placeholder_color(b.source) }}">
+      <span>{{ b.source }}</span>
+    </div>
+  {% endif %}
 
   <div class="card-body">
-    {% if b.lede %}
-      <div class="section-label">Lede</div>
-      <div class="section-text">{{ b.lede }}</div>
-    {% endif %}
-    {% if b.body %}
-      <div class="section-label">Body</div>
-      <div class="section-text">{{ b.body }}</div>
-    {% endif %}
-    {% if b.fact_sheet_json %}
-      <div class="section-label">Fact Sheet</div>
-      <div class="section-text">{{ b.fact_sheet_json }}</div>
-    {% endif %}
-    {% if b.confirmed_vs_pending %}
-      <div class="section-label">Confirmed vs Pending</div>
-      <div class="section-text">{{ b.confirmed_vs_pending }}</div>
-    {% endif %}
-    {% if b.open_questions %}
-      <div class="section-label">Open Questions</div>
-      <div class="section-text">{{ b.open_questions }}</div>
-    {% endif %}
-    {% if b.sources %}
-      <div class="section-label">Sources</div>
-      <div class="section-text">
-        {% for url in b.sources.split('\n') %}{% set url = url.strip() %}{% if url %}
-          <a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a><br>
-        {% endif %}{% endfor %}
-      </div>
-    {% endif %}
-    <div class="copy-row">
-      <button class="btn btn-copy" onclick="copyAsHtml({{ b.id }})">Copy as WordPress HTML</button>
+    <!-- Date · source meta -->
+    <div class="card-meta-line">{{ pub_date }} · {{ b.source }}</div>
+
+    <!-- Tags -->
+    <div class="card-tags">
+      <button class="market-tag"
+              style="--mc:{{ mkt_color }}"
+              onclick="event.stopPropagation(); filterByMarket('{{ mkt }}')">
+        {{ market_display(mkt) }}
+      </button>
+      {% if badge %}
+        <span class="hearing-tag {{ 'past' if 'heard' in badge }}">{{ badge }}</span>
+      {% endif %}
+      <span class="status-badge badge-{{ sclass }}">{{ slabel }}</span>
     </div>
+
+    <!-- Headline -->
+    <div class="card-headline">{{ b.headline }}</div>
+
+    <!-- Lede excerpt -->
+    {% if b.lede %}
+      <div class="card-lede">{{ b.lede }}</div>
+    {% endif %}
   </div>
-</div>
+
+</article>
 {% endfor %}
+</div>
 
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
 <script>
-/* ── Market filter (client-side, no reload) ── */
 (function () {
-  // Read initial market from URL; fall back to form-market-input (server-rendered)
-  const params    = new URLSearchParams(location.search);
-  const initMarket = params.get('market') || '{{ market_filter }}' || 'ALL';
+  var params     = new URLSearchParams(location.search);
+  var initMarket = params.get('market') || '{{ market_filter }}' || 'ALL';
 
-  function applyMarketFilter(market) {
-    const m = (market || 'ALL').toUpperCase();
-    // Show/hide cards
-    document.querySelectorAll('.card[data-market]').forEach(function (card) {
-      card.style.display = (m === 'ALL' || card.dataset.market === m) ? '' : 'none';
+  function applyFilter(market) {
+    var m = (market || 'ALL').toUpperCase();
+    document.querySelectorAll('.brief-card[data-market]').forEach(function (c) {
+      c.style.display = (m === 'ALL' || c.dataset.market === m) ? '' : 'none';
     });
-    // Update pill active state
-    document.querySelectorAll('.market-pill').forEach(function (pill) {
-      pill.classList.toggle('active', pill.dataset.market === m);
+    document.querySelectorAll('.market-pill').forEach(function (p) {
+      p.classList.toggle('active', p.dataset.market === m);
     });
-    // Keep hidden form input in sync so date-filter submits preserve the market
-    const inp = document.getElementById('form-market-input');
+    var inp = document.getElementById('form-market-input');
     if (inp) inp.value = (m === 'ALL') ? '' : m;
   }
 
   window.filterByMarket = function (market) {
-    const m = (market || 'ALL').toUpperCase();
-    // Update URL without reload
-    const url = new URL(location.href);
-    if (m === 'ALL') {
-      url.searchParams.delete('market');
-    } else {
-      url.searchParams.set('market', m);
-    }
+    var m   = (market || 'ALL').toUpperCase();
+    var url = new URL(location.href);
+    if (m === 'ALL') url.searchParams.delete('market');
+    else url.searchParams.set('market', m);
     history.pushState({ market: m }, '', url);
-    applyMarketFilter(m);
+    applyFilter(m);
   };
 
-  // Restore market filter on browser back/forward
   window.addEventListener('popstate', function (e) {
-    const m = (e.state && e.state.market) ||
-              new URLSearchParams(location.search).get('market') || 'ALL';
-    applyMarketFilter(m);
+    var m = (e.state && e.state.market) || new URLSearchParams(location.search).get('market') || 'ALL';
+    applyFilter(m);
   });
 
-  // Apply on initial load (handles ?market= in URL or server-side market_filter)
-  applyMarketFilter(initMarket);
+  applyFilter(initMarket);
 })();
 </script>
 {% endblock %}

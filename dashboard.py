@@ -17,6 +17,7 @@ import math
 import yaml
 from collections import Counter
 from datetime import datetime, date, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
@@ -55,23 +56,28 @@ def hearing_badge(hearing_date_str: Optional[str],
     return None
 
 
+@lru_cache(maxsize=1)
+def _sources_yaml() -> dict:
+    return yaml.safe_load(SOURCES_YAML.read_text())
+
+
 def _load_sources_config() -> dict[str, list[str]]:
     """Return {type_key: [source_name, ...]} from sources.yaml."""
-    cfg = yaml.safe_load(SOURCES_YAML.read_text())
-    result: dict[str, list[str]] = {}
-    for section in ("rss", "html_scrape", "wp_rest", "iqm2"):
-        result[section] = [s["name"] for s in cfg.get(section, [])]
-    return result
+    cfg = _sources_yaml()
+    return {
+        section: [s["name"] for s in cfg.get(section, [])]
+        for section in ("rss", "html_scrape", "wp_rest", "iqm2")
+    }
 
 
 def _source_type_map() -> dict[str, str]:
     """Return {source_name: type_key} for all configured sources."""
-    cfg = yaml.safe_load(SOURCES_YAML.read_text())
-    m: dict[str, str] = {}
-    for section in ("rss", "html_scrape", "wp_rest", "iqm2"):
-        for s in cfg.get(section, []):
-            m[s["name"]] = section
-    return m
+    cfg = _sources_yaml()
+    return {
+        s["name"]: section
+        for section in ("rss", "html_scrape", "wp_rest", "iqm2")
+        for s in cfg.get(section, [])
+    }
 
 
 def _brief_query_base() -> str:
@@ -97,33 +103,39 @@ def source_placeholder_color(source: str) -> str:
     return "#1e3a5f"
 
 
-_MARKET_COLORS: dict[str, str] = {
-    "MIAMI":           "#1e3a5f",
-    "TAMPA":           "#065f46",
-    "ST. PETE":        "#9a3412",
-    "ORLANDO":         "#4c1d95",
-    "WEST PALM":       "#7f1d1d",
-    "FORT LAUDERDALE": "#1e40af",
-    "BROWARD":         "#713f12",
-    "STATEWIDE":       "#1f2937",
-    "OTHER":           "#475569",
+_MIAMI_DADE = {
+    "MIAMI", "MIAMI BEACH", "CORAL GABLES", "HIALEAH", "HOMESTEAD", "AVENTURA",
+    "DORAL", "SUNNY ISLES", "BAL HARBOUR", "SURFSIDE", "NORTH MIAMI BEACH",
+    "NORTH MIAMI", "OPA-LOCKA", "SWEETWATER", "CUTLER BAY", "PALMETTO BAY",
+    "PINECREST", "SOUTH MIAMI", "KEY BISCAYNE",
 }
-
-_MARKET_DISPLAY: dict[str, str] = {
-    "FORT LAUDERDALE": "FT. LAUDERDALE",
+_BROWARD = {
+    "FT. LAUDERDALE", "MIRAMAR", "PEMBROKE PINES", "HALLANDALE BEACH", "HALLANDALE",
+    "POMPANO BEACH", "DEERFIELD BEACH", "CORAL SPRINGS", "SUNRISE", "PLANTATION",
+    "DAVIE", "WESTON", "COOPER CITY", "DANIA BEACH", "LAUDERHILL", "TAMARAC",
+    "MARGATE", "COCONUT CREEK", "LIGHTHOUSE POINT", "OAKLAND PARK", "WILTON MANORS",
+    "HOLLYWOOD",
 }
-
-# Ordered list of primary markets shown as pills on the Today view.
-PRIMARY_MARKETS = ["MIAMI", "TAMPA", "ST. PETE", "ORLANDO", "WEST PALM", "FORT LAUDERDALE"]
+_PALM_BEACH = {
+    "WEST PALM BEACH", "BOCA RATON", "DELRAY BEACH", "BOYNTON BEACH", "LAKE WORTH",
+    "PB GARDENS", "PALM BEACH", "JUPITER", "RIVIERA BEACH", "WELLINGTON",
+}
+_TAMPA_BAY = {"TAMPA", "ST. PETE", "CLEARWATER", "LARGO", "BRADENTON", "SARASOTA"}
+_ORLANDO   = {"ORLANDO", "WINTER PARK", "KISSIMMEE", "SANFORD"}
 
 
 def market_color(market: str) -> str:
-    return _MARKET_COLORS.get(market or "OTHER", "#475569")
+    m = (market or "FLORIDA").upper()
+    if m in _MIAMI_DADE:  return "#1e3a5f"
+    if m in _BROWARD:     return "#713f12"
+    if m in _PALM_BEACH:  return "#7f1d1d"
+    if m in _TAMPA_BAY:   return "#065f46"
+    if m in _ORLANDO:     return "#4c1d95"
+    return "#1f2937"
 
 
 def market_display(market: str) -> str:
-    m = market or "OTHER"
-    return _MARKET_DISPLAY.get(m, m)
+    return market or "FLORIDA"
 
 
 # ── Template context ──────────────────────────────────────────────────────────
@@ -135,7 +147,6 @@ def inject_globals():
         "source_placeholder_color": source_placeholder_color,
         "market_color":             market_color,
         "market_display":           market_display,
-        "PRIMARY_MARKETS":          PRIMARY_MARKETS,
         "active_page":              None,
     }
 
@@ -160,8 +171,9 @@ def today():
                     AND date(b.hearing_date) >= date('now')
                     AND date(b.hearing_date) <= date('now', '+7 days'))
             )
-            AND b.status NOT IN ('dismissed')
-            AND (b.snoozed_until IS NULL OR b.snoozed_until <= datetime('now'))
+            AND (b.status IN ('new', 'pending')
+                 OR (b.status = 'snoozed' AND b.snoozed_until <= datetime('now')))
+            AND ei.already_covered = 0
             ORDER BY ei.priority DESC, b.created_at DESC
             """,
             (effective_from, effective_to),
@@ -247,12 +259,21 @@ def history():
             params + [PER_PAGE, offset]
         ).fetchall()
 
+    with get_conn() as conn:
+        all_markets = [
+            row["market"] for row in conn.execute(
+                "SELECT DISTINCT market FROM extracted_items "
+                "WHERE market IS NOT NULL ORDER BY market"
+            ).fetchall()
+        ]
+
     total_pages = max(1, math.ceil(total / PER_PAGE))
     return render_template(
         "history.html",
         briefs=briefs, total=total,
         page=page, total_pages=total_pages,
         filters=filters, active_page="history",
+        all_markets=all_markets,
     )
 
 
@@ -260,35 +281,40 @@ def history():
 
 @app.route("/sources")
 def sources():
-    cfg = yaml.safe_load(SOURCES_YAML.read_text())
+    cfg = _sources_yaml()
     stale_cutoff = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d %H:%M:%S")
 
-    rows = []
     with get_conn() as conn:
-        for section in ("rss", "html_scrape", "wp_rest", "iqm2"):
-            for src in cfg.get(section, []):
-                stats = conn.execute("""
-                    SELECT
-                        MAX(captured_at) AS last_captured,
-                        COUNT(*)         AS total_items,
-                        SUM(CASE WHEN captured_at >= datetime('now', '-7 days')
-                                 THEN 1 ELSE 0 END) AS recent_items
-                    FROM raw_captures
-                    WHERE source = ?
-                """, (src["name"],)).fetchone()
+        agg = {
+            row["source"]: row
+            for row in conn.execute("""
+                SELECT
+                    source,
+                    MAX(captured_at) AS last_captured,
+                    COUNT(*)         AS total_items,
+                    SUM(CASE WHEN captured_at >= datetime('now', '-7 days')
+                             THEN 1 ELSE 0 END) AS recent_items
+                FROM raw_captures
+                GROUP BY source
+            """).fetchall()
+        }
 
-                last = stats["last_captured"]
-                stale = bool(last and last < stale_cutoff) or (
-                    stats["total_items"] == 0
-                )
-                rows.append({
-                    "name":         src["name"],
-                    "type":         section,
-                    "last_captured": last,
-                    "total_items":  stats["total_items"] or 0,
-                    "recent_items": stats["recent_items"] or 0,
-                    "stale":        stale,
-                })
+    rows = []
+    for section in ("rss", "html_scrape", "wp_rest", "iqm2"):
+        for src in cfg.get(section, []):
+            stats = agg.get(src["name"])
+            last  = stats["last_captured"] if stats else None
+            total = stats["total_items"]   if stats else 0
+            recent = stats["recent_items"] if stats else 0
+            stale = bool(last and last < stale_cutoff) or (total == 0)
+            rows.append({
+                "name":          src["name"],
+                "type":          section,
+                "last_captured": last,
+                "total_items":   total,
+                "recent_items":  recent,
+                "stale":         stale,
+            })
 
     return render_template("sources.html", sources=rows, active_page="sources")
 
@@ -368,6 +394,20 @@ def brief_dismiss(brief_id: int):
         rows = conn.execute(
             "UPDATE briefs SET status='dismissed', dismiss_reason=? WHERE id=?",
             (reason, brief_id)
+        ).rowcount
+    if not rows:
+        return jsonify(ok=False, error="Brief not found"), 404
+    return jsonify(ok=True)
+
+
+@app.route("/briefs/<int:brief_id>/undo", methods=["POST"])
+def brief_undo(brief_id: int):
+    data            = request.get_json(silent=True) or {}
+    previous_status = data.get("previous_status", "new")
+    with get_conn() as conn:
+        rows = conn.execute(
+            "UPDATE briefs SET status=?, snoozed_until=NULL, dismiss_reason=NULL WHERE id=?",
+            (previous_status, brief_id)
         ).rowcount
     if not rows:
         return jsonify(ok=False, error="Brief not found"), 404
