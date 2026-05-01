@@ -20,6 +20,30 @@ rss:
     tags: [commercial, development, national, south-florida]
     # Global feed — filter for FL relevance during classification (Session 3)
 
+  - name: St Pete Rising
+    url: http://feeds.feedburner.com/StPeteRising
+    tags: [florida, development, commercial, real-estate, business, tampa, st-pete]
+    # FeedBurner feed (Squarespace site); /feed/ returns HTML — use FeedBurner URL
+
+  - name: Tampa Bay Business & Wealth
+    url: https://tbbwmag.com/feed/
+    tags: [florida, development, commercial, real-estate, business, tampa, st-pete]
+
+  - name: Business Observer Florida
+    url: https://www.businessobserverfl.com/rss/headlines/all/
+    tags: [florida, development, commercial, real-estate, business, statewide]
+    # Custom CMS; full-text RSS at non-standard path /rss/headlines/all/
+
+  # ── Sources without RSS — not added ──────────────────────────────────────
+  # One for the Money (oftmw.com/florida): Wix site — no RSS, no WP REST API.
+  #   To add: would need an HTML scraper with Wix-specific selectors or
+  #   a Playwright-based scraper for JS-rendered content.
+  #
+  # South Florida / Tampa Bay / Orlando / Jacksonville Business Journal
+  # (bizjournals.com): Cloudflare managed challenge blocks all non-browser
+  #   access (RSS, WP REST, HTML). Would require a authenticated session or
+  #   a headless browser with cookie handling to bypass.
+
 html_scrape:
   - name: Arquitectonica Projects
     url: https://arquitectonica.com/architecture/projects/
