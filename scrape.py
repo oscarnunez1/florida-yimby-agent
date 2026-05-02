@@ -592,19 +592,192 @@ def scrape_iqm2_sources(sources: list[dict]) -> tuple[int, int]:
     return total_checked, total_inserted
 
 
+# ── Legistar government calendar ─────────────────────────────────────────────
+
+def scrape_legistar_sources(sources: list[dict]) -> tuple[int, int]:
+    """
+    Scrape Legistar-powered government meeting calendar pages.
+
+    Row selectors: tr.rgRow, tr.rgAltRow
+    Columns: 0=board name, 1=date (M/D/YYYY [time]), links=View.ashx?M=A (agenda) / M=PA (packet)
+
+    Returns (meetings_checked, captures_inserted).
+    """
+    total_checked = 0
+    total_inserted = 0
+
+    with get_conn() as conn:
+        for source in sources:
+            name         = source["name"]
+            calendar_url = source["url"]
+            board        = source.get("board", "")
+            municipality = source.get("municipality", name)
+            lookahead    = source.get("lookahead_days", 60)
+            row_sel      = source.get("row_selector", "tr.rgRow, tr.rgAltRow")
+
+            log.info("Fetching  %s  (%s)", name, calendar_url)
+
+            try:
+                r = httpx.get(
+                    calendar_url,
+                    timeout=REQUEST_TIMEOUT,
+                    follow_redirects=True,
+                    headers={"User-Agent": HTML_USER_AGENT},
+                )
+                r.raise_for_status()
+            except Exception as exc:
+                log.warning("  SKIP  %s — %s", name, exc)
+                continue
+
+            if "<title>Just a moment" in r.text or "cf-browser-verification" in r.text:
+                log.warning("  SKIP  %s — Cloudflare WAF challenge", name)
+                continue
+
+            tree = HTMLParser(r.text)
+            rows = tree.css(row_sel)
+
+            if not rows:
+                if len(r.text) < 2000:
+                    log.warning("  SKIP  %s — no rows found (possible WAF block, %d chars)", name, len(r.text))
+                else:
+                    log.warning("  No rows found for  %s", name)
+                continue
+
+            log.info("  %d rows on page; filtering for %r within %d days", len(rows), board or "all", lookahead)
+
+            today  = datetime.now(timezone.utc).date()
+            cutoff = today + timedelta(days=lookahead)
+
+            for row in rows:
+                cells = row.css("td")
+                if len(cells) < 2:
+                    continue
+
+                board_text = cells[0].text(strip=True)
+                if board and board.lower() not in board_text.lower():
+                    continue
+
+                date_str = cells[1].text(strip=True).split()[0]  # "5/1/2026" from "5/1/2026 9:00 AM"
+                meeting_date = None
+                meeting_day  = None
+                try:
+                    dt = datetime.strptime(date_str, "%m/%d/%Y")
+                    meeting_day  = dt.date()
+                    meeting_date = dt.strftime("%Y-%m-%d")
+                except ValueError:
+                    pass
+
+                if meeting_day and meeting_day > cutoff:
+                    continue
+
+                detail_link = row.css_first("a[href*='MeetingDetail.aspx']")
+                if not detail_link:
+                    continue
+                detail_href = detail_link.attributes.get("href", "").strip()
+                if not detail_href:
+                    continue
+                meeting_url = urljoin(calendar_url, detail_href)
+
+                total_checked += 1
+
+                agenda_url      = None  # full packet — tracked for state diff
+                text_agenda_url = None  # plain agenda — used for Haiku extraction
+                for a in row.css("a"):
+                    href = a.attributes.get("href", "") or ""
+                    if "View.ashx?M=A&" in href or href.endswith("View.ashx?M=A"):
+                        text_agenda_url = urljoin(calendar_url, href)
+                    elif "View.ashx?M=PA&" in href or href.endswith("View.ashx?M=PA"):
+                        agenda_url = urljoin(calendar_url, href)
+                    if agenda_url and text_agenda_url:
+                        break
+
+                prior = conn.execute(
+                    "SELECT agenda_url FROM meetings WHERE meeting_url = ?",
+                    (meeting_url,),
+                ).fetchone()
+
+                agenda_newly_posted = False
+                should_capture      = False
+
+                if prior is None:
+                    conn.execute(
+                        """INSERT INTO meetings
+                               (source, meeting_url, board, meeting_date,
+                                agenda_url, agenda_posted_at, municipality)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            name, meeting_url, board_text, meeting_date,
+                            agenda_url,
+                            datetime.now(timezone.utc).isoformat() if agenda_url else None,
+                            municipality,
+                        ),
+                    )
+                    if agenda_url:
+                        should_capture = True
+
+                elif prior["agenda_url"] is None and agenda_url:
+                    agenda_newly_posted = True
+                    should_capture      = True
+                    conn.execute(
+                        """UPDATE meetings
+                           SET agenda_url = ?, agenda_posted_at = datetime('now')
+                           WHERE meeting_url = ?""",
+                        (agenda_url, meeting_url),
+                    )
+                    log.info("  AGENDA NEWLY POSTED  [%s]  %s", board_text, meeting_date or "")
+
+                if should_capture and text_agenda_url:
+                    projects = _extract_agenda_projects(text_agenda_url, board_text, meeting_date)
+                    for project in projects:
+                        item_num = str(project.get("agenda_item_number") or "")
+                        item_url = f"{meeting_url}#item-{item_num}" if item_num else meeting_url
+
+                        pname   = (project.get("project_name") or "").strip()
+                        address = (project.get("address") or "").strip()
+                        title   = f"{pname} – {address}" if pname and address else pname or address
+                        if not title:
+                            title = f"{board_text} – {meeting_date} – Item {item_num}"
+
+                        metadata = json.dumps({
+                            "hearing_date":        meeting_date,
+                            "hearing_board":       board_text,
+                            "agenda_url":          agenda_url,
+                            "agenda_item_number":  item_num or None,
+                            "agenda_newly_posted": agenda_newly_posted,
+                        })
+                        cur = conn.execute(
+                            """INSERT OR IGNORE INTO raw_captures
+                                   (source, url, title, content, metadata_json)
+                               VALUES (?, ?, ?, ?, ?)""",
+                            (name, item_url, title, (project.get("description") or "").strip(), metadata),
+                        )
+                        if cur.rowcount:
+                            total_inserted += 1
+
+    return total_checked, total_inserted
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Scrape RSS and HTML sources into raw_captures.")
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--rss-only", action="store_true", help="Run RSS sources only")
-    group.add_argument("--html-only", action="store_true", help="Run HTML scrape sources only")
+    group.add_argument("--rss-only",      action="store_true", help="Run RSS sources only")
+    group.add_argument("--html-only",     action="store_true", help="Run HTML scrape sources only")
+    group.add_argument("--legistar-only", action="store_true", help="Run Legistar calendar sources only")
     args = parser.parse_args()
 
     init_db()
     sources = load_sources()
 
-    run_rss = not args.html_only
+    if args.legistar_only:
+        legistar_sources = sources.get("legistar", [])
+        log.info("── Legistar calendar scrape — %d sources ──", len(legistar_sources))
+        checked, inserted = scrape_legistar_sources(legistar_sources)
+        log.info("Legistar done — %d meetings checked, %d new captures", checked, inserted)
+        return
+
+    run_rss  = not args.html_only
     run_html = not args.rss_only
 
     if run_rss:
@@ -628,6 +801,11 @@ def main() -> None:
         log.info("── IQM2 calendar scrape — %d sources ──", len(iqm2_sources))
         checked, inserted = scrape_iqm2_sources(iqm2_sources)
         log.info("IQM2 done — %d meetings checked, %d new captures", checked, inserted)
+
+        legistar_sources = sources.get("legistar", [])
+        log.info("── Legistar calendar scrape — %d sources ──", len(legistar_sources))
+        checked, inserted = scrape_legistar_sources(legistar_sources)
+        log.info("Legistar done — %d meetings checked, %d new captures", checked, inserted)
 
 
 if __name__ == "__main__":
