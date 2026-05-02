@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlencode
 
-from flask import Flask, render_template, request, jsonify, abort, redirect, url_for
+from flask import Flask, render_template, request, jsonify, abort, redirect, url_for, g
 
 from db import get_conn, init_db
 from utils import CITY_TO_COUNTY, COUNTY_TO_REGION, get_cities_by_county, get_counties_by_region
@@ -271,16 +271,17 @@ def _geo_lookups() -> tuple[list, list]:
 
 @app.context_processor
 def inject_globals():
-    with get_conn() as conn:
-        unread_count = conn.execute(
-            "SELECT COUNT(*) FROM briefs WHERE status = 'new'"
-        ).fetchone()[0]
+    if not hasattr(g, "unread_count"):
+        with get_conn() as conn:
+            g.unread_count = conn.execute(
+                "SELECT COUNT(*) FROM briefs WHERE status = 'new'"
+            ).fetchone()[0]
     return {
         "hearing_badge":            hearing_badge,
         "source_placeholder_color": source_placeholder_color,
         "market_color":             market_color,
         "market_display":           market_display,
-        "unread_count":             unread_count,
+        "unread_count":             g.unread_count,
         "active_page":              None,
     }
 

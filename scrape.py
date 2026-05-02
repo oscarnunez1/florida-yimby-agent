@@ -400,6 +400,9 @@ def _extract_agenda_projects(
             }],
         )
         raw = response.content[0].text.strip()
+    except anthropic.APIError as exc:
+        log.error("  Anthropic API error: %s", exc)
+        return []
     except Exception as exc:
         log.error("  Haiku extraction failed — %s", exc)
         return []
@@ -643,21 +646,34 @@ def scrape_legistar_sources(sources: list[dict]) -> tuple[int, int]:
                     log.warning("  No rows found for  %s", name)
                 continue
 
-            log.info("  %d rows on page; filtering for %r within %d days", len(rows), board or "all", lookahead)
+            # Discover column indices from th headers; default to 0=board, 1=date.
+            board_col = 0
+            date_col  = 1
+            header_row = tree.css_first("tr.rgHeader, thead tr, tr:first-child")
+            if header_row:
+                headers = [th.text(strip=True).lower() for th in header_row.css("th, td")]
+                for i, h in enumerate(headers):
+                    if any(kw in h for kw in ("name", "board", "meeting")):
+                        board_col = i
+                    elif "date" in h:
+                        date_col = i
+
+            log.info("  %d rows on page; filtering for %r within %d days (cols: board=%d date=%d)",
+                     len(rows), board or "all", lookahead, board_col, date_col)
 
             today  = datetime.now(timezone.utc).date()
             cutoff = today + timedelta(days=lookahead)
 
             for row in rows:
                 cells = row.css("td")
-                if len(cells) < 2:
+                if len(cells) <= max(board_col, date_col):
                     continue
 
-                board_text = cells[0].text(strip=True)
+                board_text = cells[board_col].text(strip=True)
                 if board and board.lower() not in board_text.lower():
                     continue
 
-                date_str = cells[1].text(strip=True).split()[0]  # "5/1/2026" from "5/1/2026 9:00 AM"
+                date_str = cells[date_col].text(strip=True).split()[0]  # "5/1/2026" from "5/1/2026 9:00 AM"
                 meeting_date = None
                 meeting_day  = None
                 try:
