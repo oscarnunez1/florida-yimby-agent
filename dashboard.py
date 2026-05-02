@@ -17,6 +17,7 @@ Routes:
 
 import json
 import math
+import os
 import yaml
 from collections import Counter
 from datetime import datetime, date, timedelta
@@ -37,7 +38,7 @@ PER_PAGE      = 25
 COV_PER_PAGE  = 30
 
 app = Flask(__name__)
-app.secret_key = "fl-yimby-dashboard-dev"
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-fallback-key")
 
 # ── Geo data (static, built from process.py mappings) ────────────────────────
 
