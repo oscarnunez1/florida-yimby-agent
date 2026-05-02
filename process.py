@@ -524,6 +524,7 @@ def cmd_draft_briefs(limit: Optional[int]) -> None:
             f"City: {row['city'] or data.get('city') or 'Unknown'}",
             f"Developer: {row['developer'] or 'Unknown'}",
             f"Architect: {row['architect'] or 'Unknown'}",
+            f"Contractor: {data.get('contractor') or 'Unknown'}",
             f"Units: {row['units'] or data.get('units') or 'Unknown'}",
             f"Height: {row['height'] or data.get('height_ft') or 'Unknown'} ft",
             f"Status: {row['status'] or 'Unknown'}",

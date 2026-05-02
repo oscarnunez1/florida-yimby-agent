@@ -20,7 +20,7 @@ import math
 import os
 import yaml
 from collections import Counter
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -512,7 +512,7 @@ def brief_undo(brief_id: int):
 
 @app.route("/briefs/<int:brief_id>/snooze", methods=["POST"])
 def brief_snooze(brief_id: int):
-    until = (datetime.now() + timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+    until = (datetime.now(timezone.utc) + timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
     with get_conn() as conn:
         rows = conn.execute(
             "UPDATE briefs SET status='snoozed', snoozed_until=? WHERE id=?",
