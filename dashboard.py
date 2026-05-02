@@ -284,7 +284,7 @@ def _geo_lookups() -> tuple[list, list]:
 def inject_globals():
     with get_conn() as conn:
         unread_count = conn.execute(
-            "SELECT COUNT(*) FROM briefs WHERE status IN ('new', 'pending')"
+            "SELECT COUNT(*) FROM briefs WHERE status = 'new'"
         ).fetchone()[0]
     return {
         "hearing_badge":            hearing_badge,
@@ -330,7 +330,7 @@ def inbox():
     else:
         # default: unread
         where.append(
-            "(b.status IN ('new', 'pending')"
+            "(b.status = 'new'"
             " OR (b.status = 'snoozed' AND b.snoozed_until <= datetime('now')))"
         )
         where.append("ei.already_covered = 0")
@@ -411,7 +411,7 @@ def archive():
 
     status = filters["status"]
     if status == "new":
-        where.append("b.status IN ('new', 'pending')")
+        where.append("b.status = 'new'")
     elif status in ("used", "dismissed", "snoozed"):
         where.append("b.status = ?")
         params.append(status)
