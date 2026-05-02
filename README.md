@@ -1,6 +1,6 @@
 # Florida YIMBY Intel
 
-A personal research agent that monitors Florida real estate development news, municipal hearing agendas, and architect project portfolios, then drafts publication-ready editorial briefs for a journalist who covers the Florida development beat. Instead of spending an hour each morning scanning feeds and board calendars, the journalist opens a dashboard, reviews pre-written briefs filtered to their coverage area, and either sends them to WordPress or dismisses them. The agent runs automatically every morning at 10 AM and costs roughly a dollar a day to operate.
+A personal research agent that monitors Florida real estate development news, municipal hearing agendas, and editorial sources, then drafts publication-ready briefs for a journalist covering the Florida development beat. Instead of spending an hour each morning scanning feeds and board calendars, the journalist opens a dashboard, reviews pre-written briefs filtered to their coverage area, and either sends them to WordPress or dismisses them. The agent runs automatically every morning at 10 AM and costs roughly a dollar a day to operate.
 
 ---
 
@@ -13,10 +13,15 @@ Sources → Scraper → raw_captures → Classifier → extracted_items → Dedu
 ```
 
 **1. Scrape** (`scrape.py`)
-Pulls new items from every configured source. RSS feeds are fetched via feedparser; HTML pages are scraped with CSS selectors; WordPress REST API endpoints are queried for project portfolios; IQM2 government calendar pages are polled for upcoming board meetings and newly posted agenda packets. New items land in `raw_captures`. Deduplication is by URL — already-seen items are silently skipped. For RSS items, an OG image is fetched from each article page and stored alongside the capture. Floridian Development images are downloaded and embedded as base64 data URLs because that site blocks hotlinking.
+Pulls new items from every configured source:
+- **RSS feeds** — fetched via feedparser; OG images fetched per article and stored alongside the capture. Floridian Development images are downloaded and embedded as base64 data URLs because that site blocks hotlinking.
+- **IQM2 municipal calendars** — Miami boards on `miamifl.iqm2.com` are polled for upcoming meetings and newly posted agenda packets. When a new agenda appears, it is downloaded as a PDF and sent to Claude Haiku for project extraction. One `raw_capture` is created per development item found in the agenda.
+- **Legistar municipal calendars** — Tampa, St. Petersburg, Coral Gables, and Pompano Beach boards are monitored via Legistar's `Calendar.aspx` pages using the same detect-and-extract pattern as IQM2. Coral Gables is currently accessible; Tampa, St. Pete, and Pompano Beach are blocked by Cloudflare WAF (infrastructure in place, access pending Playwright integration). Agenda PDFs are extracted via Claude Haiku in the same way as IQM2.
+
+New items land in `raw_captures`. Deduplication is by URL — already-seen items are silently skipped.
 
 **2. Classify** (`process.py classify`)
-Every unprocessed capture is sent to Claude Haiku with a structured prompt. Haiku decides: Is this a Florida development item? How newsworthy is it (high / medium / low)? It extracts whatever structured fields it can find — project name, address, city, developer, architect, unit count, height, status, event type. Items flagged as newly-posted agenda packets are automatically promoted to high priority. Results go into `extracted_items` with a `market` (city), `county`, and `region` value derived from the city field.
+Every unprocessed capture is sent to Claude Haiku with a structured prompt. Haiku decides: Is this a Florida development item? How newsworthy is it (high / medium / low)? It extracts whatever structured fields it can find — project name, address, city, developer, architect, unit count, height, status, event type. Items flagged as newly-posted agenda packets are automatically promoted to high priority. Results go into `extracted_items` with a `market` (city), `county`, and `region` value derived from the city field using word-boundary regex matching.
 
 **3. Dedup** (`process.py dedup`)
 Every extracted Florida development item is fuzzy-matched against the coverage index — a catalogue of every article published on floridayimby.com. Matching uses token sort ratio on project names (threshold: 85) with an address confirmation step. If the journalist has already written about a project, the item is flagged `already_covered = 1` and excluded from brief generation.
@@ -37,9 +42,8 @@ sources.yaml
     ▼
 scrape.py ──────────────────────────────────────────────────────────────────┐
 │  RSS feeds (feedparser)                                                    │
-│  HTML scrapers (selectolax)                                                │
-│  WordPress REST API (httpx)                                                │
-│  IQM2 calendar + agenda PDF (httpx + Haiku PDF extraction)                 │
+│  IQM2 calendar + agenda PDF (httpx + Haiku PDF extraction)                │
+│  Legistar calendar + agenda PDF (httpx + Haiku PDF extraction)            │
     │
     ▼
 raw_captures  (SQLite)
@@ -47,7 +51,7 @@ raw_captures  (SQLite)
     ▼
 process.py classify  (Claude Haiku 4.5)
     │  Structured JSON extraction per item
-    │  City → county → region detection
+    │  City → county → region detection (word-boundary regex)
     ▼
 extracted_items  (SQLite)
     │
@@ -68,7 +72,7 @@ briefs  (SQLite)
 dashboard.py  (Flask + Jinja2)
     │
     ├── /inbox    — unread briefs, cascading geo filters
-    ├── /archive  — all briefs, paginated, full filter bar
+    ├── /archive  — all briefs, full filter bar
     ├── /briefs/<id>  — full brief detail + WordPress copy
     ├── /sources  — source health table
     ├── /coverage — coverage index search
@@ -87,16 +91,9 @@ dashboard.py  (Flask + Jinja2)
 | Commercial Observer | commercialobserver.com/feed/ | National CRE, filtered for FL |
 | Construction Dive | constructiondive.com/feeds/news/ | National construction, filtered for FL |
 | Bisnow | bisnow.com/rss/ | Global CRE feed, filtered for FL relevance during classification |
-
-### HTML scrapers
-| Source | URL | Selector |
-|---|---|---|
-| Arquitectonica Projects | arquitectonica.com/architecture/projects/ | `.project` items |
-
-### WordPress REST API
-| Source | URL | Notes |
-|---|---|---|
-| Kobi Karp Projects | kobikarp.com/wp-json/wp/v2/projects | Architect project portfolio |
+| St Pete Rising | feeds.feedburner.com/StPeteRising | Tampa Bay development news (FeedBurner) |
+| Tampa Bay Business & Wealth | tbbwmag.com/feed/ | Tampa Bay business and real estate |
+| Business Observer Florida | businessobserverfl.com/rss/headlines/all/ | Statewide Florida business news |
 
 ### IQM2 municipal boards
 | Source | Board | Lookahead |
@@ -108,12 +105,31 @@ dashboard.py  (Flask + Jinja2)
 
 All four boards use `miamifl.iqm2.com`. The scraper polls each board's calendar, detects newly posted agenda PDFs, extracts individual project listings from the PDF via Haiku, and creates one `raw_capture` per project line item.
 
+### Legistar municipal boards
+| Municipality | Board | Status |
+|---|---|---|
+| Coral Gables | Planning and Zoning Board | Active |
+| Coral Gables | Board of Architects | Active |
+| Tampa | Planning Commission | WAF-blocked |
+| Tampa | City Council | WAF-blocked |
+| Tampa | Variance Review Board | WAF-blocked |
+| Tampa | Architectural Review Committee | WAF-blocked |
+| St. Petersburg | Planning Commission | WAF-blocked |
+| St. Petersburg | City Council | WAF-blocked |
+| St. Petersburg | Board of Adjustment | WAF-blocked |
+| Pompano Beach | Community Redevelopment Agency | WAF-blocked |
+| Pompano Beach | Planning and Zoning Board | WAF-blocked |
+| Pompano Beach | City Commission | WAF-blocked |
+| Pompano Beach | Architectural Appearance Review Board | WAF-blocked |
+
+Coral Gables (`coralgables.legistar.com`) is accessible and actively monitored. Tampa, St. Petersburg, and Pompano Beach Legistar portals return 19-byte Cloudflare WAF responses to automated requests. The scraper infrastructure is fully in place for all 13 boards — accessing the blocked sites requires a Playwright-based headless browser (see Roadmap). Column indices are discovered dynamically from table headers, so layout changes by any municipality won't break parsing.
+
 ---
 
 ## Tech Stack
 
 - **Python 3.9.6**
-- **httpx** — HTTP client for all web requests (RSS, HTML, WP REST, IQM2, OG images)
+- **httpx** — HTTP client for all web requests (RSS, HTML, IQM2, Legistar, OG images)
 - **feedparser** — RSS/Atom feed parsing
 - **selectolax** — fast HTML parsing with CSS selectors
 - **flask** — web framework for the dashboard
@@ -122,9 +138,23 @@ All four boards use `miamifl.iqm2.com`. The scraper polls each board's calendar,
 - **rapidfuzz** — fuzzy string matching for deduplication
 - **apscheduler** — used by the cron shell wrapper
 - **anthropic** — Anthropic Python SDK
-- **SQLite** with WAL mode — single-file database, concurrent read-safe
+- **SQLite** with WAL mode + 5 s busy timeout — single-file database, concurrent read-safe
 - **Claude Haiku 4.5** — classification, agenda PDF extraction, coverage index ingestion
 - **Claude Opus 4.5** — brief drafting (8-section editorial briefs)
+
+---
+
+## Reliability & Performance Features
+
+Improvements made after the initial build to harden the pipeline for daily unattended operation:
+
+- **SQLite WAL mode + 5 s busy timeout** — the scraper and dashboard can run concurrently without "database is locked" errors; SQLite will retry for up to 5 seconds before raising an exception.
+- **Centralised geo data** (`utils.py`) — `CITY_TO_COUNTY` and `COUNTY_TO_REGION` are defined once in `utils.py` and imported everywhere; no duplication between `process.py` and `dashboard.py`.
+- **Cached sidebar unread count** — `inject_globals()` stores the unread count in Flask's `g` object so the `COUNT(*)` query runs at most once per request regardless of how many templates reference it.
+- **Resilient Legistar column detection** — the scraper discovers board-name and date column indices by scanning `<th>` header text rather than using hardcoded positional indices, so a municipality's layout change won't silently produce wrong data.
+- **Word-boundary market detection** — `detect_market()` uses `\b` regex boundaries when scanning address fields, preventing partial-word matches (e.g. `daviesfield` no longer triggers the `DAVIE` market).
+- **Explicit Anthropic API error handling** — all three `client.messages.create()` call sites catch `anthropic.APIError` explicitly before the general `Exception` fallback, producing a clean log line and continuing the pipeline rather than crashing the run.
+- **Secure Flask secret key** — loaded from `FLASK_SECRET_KEY` env var; never hardcoded.
 
 ---
 
@@ -132,11 +162,12 @@ All four boards use `miamifl.iqm2.com`. The scraper polls each board's calendar,
 
 ```
 florida-yimby-agent/
-├── scrape.py              # All source scrapers: RSS, HTML, WP REST, IQM2
+├── scrape.py              # All source scrapers: RSS, IQM2, Legistar
 ├── process.py             # Classification, dedup, brief drafting, market detection
 ├── dashboard.py           # Flask app: all routes, filter logic, template context
 ├── db.py                  # SQLite schema, migrations, connection helper
-├── utils.py               # Shared helpers (strip markdown fences)
+├── utils.py               # Shared utilities and single source of truth for geo data
+│                          #   (CITY_TO_COUNTY, COUNTY_TO_REGION mappings + helpers)
 ├── run_daily.py           # Pipeline orchestrator: runs all 4 steps in sequence
 ├── run_daily.sh           # Bash wrapper: activates venv, writes dated log file
 ├── backfill_og_images.py  # One-shot: backfill OG images for existing RSS captures
@@ -153,7 +184,7 @@ florida-yimby-agent/
 ├── templates/
 │   ├── base.html          # Layout, CSS design system, sidebar nav, JS utilities
 │   ├── inbox.html         # Today's unread briefs with cascading geo filter bar
-│   ├── archive.html       # All briefs, paginated, full filter bar
+│   ├── archive.html       # All briefs, full filter bar
 │   ├── brief_detail.html  # Single brief: all sections + WordPress copy button
 │   ├── sources.html       # Source health table
 │   ├── coverage.html      # Coverage index search
@@ -193,11 +224,16 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `.env` and add your Anthropic API key:
+Edit `.env` and add your keys:
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
+
+# Flask session security — generate with: python -c "import secrets; print(secrets.token_hex(32))"
+FLASK_SECRET_KEY=your-secret-key-here
 ```
+
+`FLASK_SECRET_KEY` is used to sign Flask session cookies. Without it the dashboard falls back to a generic dev key, which is insecure if the port is ever exposed outside localhost.
 
 ### 5. Initialize the database
 
@@ -261,8 +297,9 @@ crontab -e
 python run_daily.py
 
 # Individual steps
-python scrape.py                        # scrape all sources
+python scrape.py                        # scrape all sources (RSS + IQM2 + Legistar)
 python scrape.py --rss-only             # RSS only
+python scrape.py --legistar-only        # Legistar calendar sources only
 python process.py classify              # classify new captures
 python process.py classify --limit 5    # classify at most 5 (for testing)
 python process.py classify --dry-run    # classify without writing to DB
@@ -295,18 +332,18 @@ The `daily_log` table in the database stores run date, new captures count, new b
 Shows unread briefs (status = new or pending, not snoozed past their wake time) captured in the last 7 days by default. The filter bar lets you narrow by:
 
 - **Region** → **County** → **City** — cascading geo dropdowns. Changing Region filters the County options; changing County filters the City options. All client-side, no extra server round-trips.
-- **Date** — presets: Today, Last 7 days, Last 30 days, Last 90 days, All Time.
-- **Source** — News (RSS + HTML + WP REST) or Municipal (IQM2 boards).
+- **Date** — presets: Today, Last 7 days, Last 30 days, Last 90 days, All Time, or Custom range.
+- **Source** — individual source selection from all configured sources.
 - **Status** — Unread (default), All, Used, Snoozed, Dismissed.
 - **⚡ Upcoming hearings** — toggle to show only briefs with a board hearing in the next 14 days.
 
 Active filters appear as removable chips below the filter bar. Click × on a chip to remove that one filter. "Clear all" resets everything.
 
-The sidebar shows an unread count badge next to Inbox.
+The sidebar shows an unread count badge next to Briefs.
 
 ### Archive (`/archive`)
 
-All briefs ever created, paginated 25 per page, with the same filter bar (status defaults to All). Useful for finding a specific brief, checking what was covered in a past date range, or reviewing dismissed items.
+All briefs ever created with the same filter bar (status defaults to All). Useful for finding a specific brief, checking what was covered in a past date range, or reviewing dismissed items.
 
 ### Sources (`/sources`)
 
@@ -332,7 +369,7 @@ All three actions show an **Undo** toast at the bottom of the screen. The toast 
 
 ### Card navigation
 
-Clicking anywhere on a card (outside the three-dot menu) navigates to the full brief detail page. Browsers that support the View Transitions API (Chrome 111+, Safari 18+) get a shared-element morph animation — the card expands into the detail view. The back button returns to the previous page with the same animation in reverse.
+Clicking anywhere on a card (outside the three-dot menu) navigates to the full brief detail page. Browsers that support the View Transitions API (Chrome 111+, Safari 18+) get a shared-element morph animation. The back button returns to the previous page with the same animation in reverse.
 
 ### Brief detail page
 
@@ -367,36 +404,22 @@ iqm2:
     lookahead_days: 60
 ```
 
-The `board` value must match the exact board name as it appears in the IQM2 HTML row — the scraper uses it to filter which calendar rows to process. The `lookahead_days` field controls how far ahead to look for upcoming meetings. The default IQM2 selectors work for all standard `*.iqm2.com` installs; use the optional selector overrides if a municipality has customized its layout (documented in `sources.yaml` comments).
+The `board` value must match the exact board name as it appears in the IQM2 HTML row. The default IQM2 selectors work for all standard `*.iqm2.com` installs; use the optional selector overrides if a municipality has customized its layout (documented in `sources.yaml` comments).
 
-### New WordPress REST source
+### New Legistar board
 
-Add an entry under `wp_rest:` in `sources.yaml`:
-
-```yaml
-wp_rest:
-  - name: Source Display Name
-    url: https://example.com/wp-json/wp/v2/custom-post-type
-    per_page: 100
-```
-
-The scraper fetches `?per_page=N` and inserts each item's `title.rendered` + `link`. Use the WordPress REST API browser at `/wp-json/wp/v2/` to find the correct post type endpoint.
-
-### New HTML scraper
-
-Add an entry under `html_scrape:` in `sources.yaml`:
+Add an entry under `legistar:` in `sources.yaml`:
 
 ```yaml
-html_scrape:
-  - name: Source Display Name
-    url: https://example.com/projects/
-    category: developer
-    item_selector: ".project-card"
-    title_selector: "h3"
-    link_selector: "a.project-link"
+legistar:
+  - name: Example City Planning Board
+    url: https://examplecity.legistar.com/Calendar.aspx
+    municipality: Example City
+    board: Planning Board
+    lookahead_days: 60
 ```
 
-If the page is JavaScript-rendered (items only appear after JS executes), add `js_rendered: true` — the scraper will log a warning and skip it. JS-rendered sources require Playwright and are deferred to v2.
+The `board` value is matched case-insensitively as a substring against the first column of each calendar row. The scraper auto-discovers column positions from table headers, so it is resilient to minor layout changes. Sites protected by Cloudflare WAF will be detected and skipped gracefully with a warning log.
 
 ---
 
@@ -408,11 +431,11 @@ System prompt for Claude Haiku 4.5. Receives the title and content of each raw c
 
 ### `prompts/draft_brief.md`
 
-System prompt for Claude Opus 4.5. Receives structured fields from `extracted_items` plus the source content and writes a full 8-section research brief. Voice rules enforce the publication's style: lead with the observable fact, present tense for current status, no adjectives that aren't measurements, no enabling phrases ("clears the way," "paves the way"), cite specific numbers. The Accuracy Score section requires Opus to self-assess factual confidence on four dimensions. For IQM2 items, the lede must include board name, hearing date, and application number.
+System prompt for Claude Opus 4.5. Receives structured fields from `extracted_items` plus the source content and writes a full 8-section research brief. Voice rules enforce the publication's style: lead with the observable fact, present tense for current status, no adjectives that aren't measurements, no enabling phrases ("clears the way," "paves the way"), cite specific numbers. The Accuracy Score section requires Opus to self-assess factual confidence on four dimensions. For IQM2 and Legistar items, the lede must include board name, hearing date, and application number.
 
 ### `prompts/extract_agenda.md`
 
-System prompt for Haiku's PDF document API. Receives a municipal board meeting agenda as a PDF and returns a JSON array of individual project listings — one object per development item with agenda item number, project name, address, developer, architect, and description. Procedural items (approval of minutes, roll call, public comment) are filtered out.
+System prompt for Haiku's PDF document API. Receives a municipal board meeting agenda as a PDF and returns a JSON array of individual project listings — one object per development item with agenda item number, project name, address, developer, architect, and description. Procedural items (approval of minutes, roll call, public comment) are filtered out. Used for both IQM2 and Legistar agenda PDFs.
 
 ### `prompts/ingest_archive.md`
 
@@ -436,7 +459,7 @@ The raw intake table. One row per unique URL.
 | `published_at` | TEXT | ISO date parsed from RSS feed |
 | `processed` | INTEGER | 0 = not yet classified |
 | `og_image_url` | TEXT | OG/Twitter card image URL or base64 data URL |
-| `metadata_json` | TEXT | IQM2 hearing metadata: hearing_date, hearing_board, agenda_url, agenda_newly_posted |
+| `metadata_json` | TEXT | IQM2/Legistar hearing metadata: hearing_date, hearing_board, agenda_url, agenda_newly_posted |
 
 ### `extracted_items`
 One row per classified item. Only FL development items flow into briefs.
@@ -461,8 +484,8 @@ One row per classified item. Only FL development items flow into briefs.
 | `already_covered` | INTEGER | 0/1 — set by dedup step |
 | `coverage_match_url` | TEXT | URL of matched published article |
 | `market` | TEXT | City-level market: MIAMI, MIRAMAR, BOCA RATON, etc. |
-| `county` | TEXT | Miami-Dade, Broward, Palm Beach, Hillsborough, etc. |
-| `region` | TEXT | South Florida, Tampa Bay, Orlando Metro |
+| `county` | TEXT | Miami-Dade, Broward, Palm Beach, Hillsborough, etc. — drives the cascading county filter |
+| `region` | TEXT | South Florida, Tampa Bay, Orlando Metro — drives the top-level region filter |
 
 ### `briefs`
 One row per drafted brief.
@@ -481,8 +504,8 @@ One row per drafted brief.
 | `accuracy_score` | REAL | 0–100 self-assessment by Opus |
 | `status` | TEXT | new / used / dismissed / snoozed / pending |
 | `created_at` | TEXT | ISO datetime |
-| `hearing_date` | TEXT | ISO date from IQM2 metadata |
-| `hearing_board` | TEXT | Board name from IQM2 metadata |
+| `hearing_date` | TEXT | ISO date from IQM2/Legistar metadata |
+| `hearing_board` | TEXT | Board name from IQM2/Legistar metadata |
 | `snoozed_until` | TEXT | ISO datetime when snooze expires |
 | `dismiss_reason` | TEXT | not_relevant / already_covered / wrong_market / low_priority / duplicate / other |
 
@@ -500,16 +523,17 @@ Catalogue of published articles used for deduplication.
 | `published_at` | TEXT | ISO date |
 
 ### `meetings`
-State tracking for IQM2 board meeting calendar entries.
+State tracking for IQM2 and Legistar board meeting calendar entries.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | INTEGER | Primary key |
 | `source` | TEXT | Source name from sources.yaml |
-| `meeting_url` | TEXT | Unique — IQM2 meeting detail URL |
+| `meeting_url` | TEXT | Unique — meeting detail URL |
 | `board` | TEXT | Board name |
 | `meeting_date` | TEXT | ISO date |
-| `agenda_url` | TEXT | Full agenda packet URL (Type=1) |
+| `agenda_url` | TEXT | Full agenda packet URL |
+| `municipality` | TEXT | City/county display name (e.g. "Tampa", "Coral Gables") |
 | `first_seen_at` | TEXT | When the meeting was first discovered |
 | `agenda_posted_at` | TEXT | When the agenda URL first appeared |
 
@@ -540,7 +564,9 @@ All estimates assume Claude Haiku 4.5 at $0.80/M input + $4.00/M output tokens a
 | Brief drafting | Opus | ~3 briefs | ~$0.30 |
 | **Total** | | | **~$0.40/day** |
 
-On heavy news days (multiple IQM2 agendas + several major stories), the daily cost can reach $1–2. Most days it is under $0.50.
+On heavy news days (multiple board agendas + several major stories), the daily cost can reach $1–2. Most days it is under $0.50.
+
+> **Note:** Costs scale with the number of municipal agendas processed each day. Legistar boards can post large agenda packets (50–200 pages); when multiple boards post simultaneously, Haiku token usage increases proportionally. Days with 3+ active agendas from Coral Gables, Tampa, or St. Pete could add $0.20–0.50 to the daily total.
 
 ### One-time setup costs
 
@@ -553,9 +579,9 @@ On heavy news days (multiple IQM2 agendas + several major stories), the daily co
 ## Known Limitations
 
 - **JavaScript-rendered sources** cannot be scraped without Playwright. The Melo Group projects page is in `html_scrape_deferred` for this reason. iBuild (Miami-Dade permit portal) and EnerGov (Miami-Dade pre-application portal) are also JavaScript-rendered.
+- **Tampa, St. Petersburg, and Pompano Beach Legistar portals** are protected by Cloudflare WAF and currently inaccessible via automated scraping. The scraper infrastructure is fully in place for all 13 boards; accessing these sources requires Playwright-based headless browser automation (see Roadmap).
 - **Coverage index scope**: The dedup catalogue is based on the full floridayimby.com archive, not just Oscar's byline — this is intentional but means it may suppress items covered by other staff writers that Oscar might want to cover independently.
 - **Cron requires the laptop to be awake** at 10 AM. If the machine is asleep, the pipeline skips that day. Migration to a VPS would eliminate this.
-- **IQM2 boards**: Currently tracking only Miami boards on `miamifl.iqm2.com`. Tampa, St. Pete, Coral Gables, and Pompano Beach use Legistar, not IQM2, and require a separate scraper.
 - **Classified but not extracted**: Items where Haiku detects `florida_relevance=true` and `is_development_item=true` but cannot extract any structured fields will have null values throughout. These still get briefs drafted; the brief will have weaker fact sheets.
 - **No real-time alerts**: The pipeline runs once a day. Breaking news between runs is not captured until the next morning.
 
@@ -563,8 +589,10 @@ On heavy news days (multiple IQM2 agendas + several major stories), the daily co
 
 ## Roadmap
 
-- **Legistar scraper** — Tampa City Council, St. Petersburg City Council, Coral Gables City Commission, and Pompano Beach Planning and Zoning Board all use Legistar. The scraper structure will mirror the IQM2 integration: detect newly posted agendas, extract project items, create captures.
+- **Playwright-based Legistar scraper** — Tampa, St. Petersburg, and Pompano Beach Legistar portals are blocked by Cloudflare WAF. A headless browser session using Playwright could bypass this; all 11 remaining boards would activate immediately.
 - **EnerGov pre-application scraper** — Miami-Dade's pre-application portal (MiamiDade.gov/building) shows projects before any formal filing. Requires Playwright for JavaScript rendering.
-- **Fort Lauderdale DRC** — The Fort Lauderdale Development Review Committee has no IQM2 or Legistar — it publishes meeting packets as PDFs directly on the city website. A targeted scraper with direct PDF monitoring is planned.
+- **Fort Lauderdale DRC** — The Fort Lauderdale Development Review Committee publishes meeting packets as PDFs directly on the city website. A targeted scraper with direct PDF monitoring is planned.
 - **Event and asset type classification** — Add dedicated fields for `asset_type` (residential, office, hotel, retail, mixed-use, industrial) and `event_type` refinement to enable better inbox filtering without relying on text search.
+- **Project and company knowledge graph** — A relationship layer linking developer entities, architect firms, and project addresses across briefs to enable cross-project intelligence ("this developer has 4 active projects in Brickell").
+- **Metrics dashboard** — Conversion rate by source (briefs published vs. generated), source value scoring, market distribution charts.
 - **VPS deployment** — Move the cron job to a Linux VPS for 24/7 operation, add a daily digest email, and expose the dashboard on a private URL rather than localhost.
