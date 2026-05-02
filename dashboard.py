@@ -29,7 +29,7 @@ from urllib.parse import urlencode
 from flask import Flask, render_template, request, jsonify, abort, redirect, url_for
 
 from db import get_conn, init_db
-from process import CITY_TO_COUNTY, COUNTY_TO_REGION
+from utils import CITY_TO_COUNTY, COUNTY_TO_REGION, get_cities_by_county, get_counties_by_region
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -117,35 +117,23 @@ def source_placeholder_color(source: str) -> str:
     return "#1e3a5f"
 
 
-_MIAMI_DADE = {
-    "MIAMI", "MIAMI BEACH", "CORAL GABLES", "HIALEAH", "HOMESTEAD", "AVENTURA",
-    "DORAL", "SUNNY ISLES", "BAL HARBOUR", "SURFSIDE", "NORTH MIAMI BEACH",
-    "NORTH MIAMI", "OPA-LOCKA", "SWEETWATER", "CUTLER BAY", "PALMETTO BAY",
-    "PINECREST", "SOUTH MIAMI", "KEY BISCAYNE",
+_COUNTY_COLOR: dict[str, str] = {
+    "Miami-Dade":   "#1e3a5f",
+    "Broward":      "#713f12",
+    "Palm Beach":   "#7f1d1d",
+    "Hillsborough": "#065f46",
+    "Pinellas":     "#065f46",
+    "Manatee":      "#065f46",
+    "Sarasota":     "#065f46",
+    "Orange":       "#4c1d95",
+    "Osceola":      "#4c1d95",
+    "Seminole":     "#4c1d95",
 }
-_BROWARD = {
-    "FT. LAUDERDALE", "MIRAMAR", "PEMBROKE PINES", "HALLANDALE BEACH", "HALLANDALE",
-    "POMPANO BEACH", "DEERFIELD BEACH", "CORAL SPRINGS", "SUNRISE", "PLANTATION",
-    "DAVIE", "WESTON", "COOPER CITY", "DANIA BEACH", "LAUDERHILL", "TAMARAC",
-    "MARGATE", "COCONUT CREEK", "LIGHTHOUSE POINT", "OAKLAND PARK", "WILTON MANORS",
-    "HOLLYWOOD",
-}
-_PALM_BEACH = {
-    "WEST PALM BEACH", "BOCA RATON", "DELRAY BEACH", "BOYNTON BEACH", "LAKE WORTH",
-    "PB GARDENS", "PALM BEACH", "JUPITER", "RIVIERA BEACH", "WELLINGTON",
-}
-_TAMPA_BAY = {"TAMPA", "ST. PETE", "CLEARWATER", "LARGO", "BRADENTON", "SARASOTA"}
-_ORLANDO   = {"ORLANDO", "WINTER PARK", "KISSIMMEE", "SANFORD"}
 
 
 def market_color(market: str) -> str:
-    m = (market or "FLORIDA").upper()
-    if m in _MIAMI_DADE:  return "#1e3a5f"
-    if m in _BROWARD:     return "#713f12"
-    if m in _PALM_BEACH:  return "#7f1d1d"
-    if m in _TAMPA_BAY:   return "#065f46"
-    if m in _ORLANDO:     return "#4c1d95"
-    return "#1f2937"
+    county = CITY_TO_COUNTY.get((market or "").upper())
+    return _COUNTY_COLOR.get(county, "#1f2937")
 
 
 def market_display(market: str) -> str:
