@@ -122,7 +122,11 @@ All four boards use `miamifl.iqm2.com`. The scraper polls each board's calendar,
 | Pompano Beach | City Commission | WAF-blocked |
 | Pompano Beach | Architectural Appearance Review Board | WAF-blocked |
 
-Coral Gables (`coralgables.legistar.com`) is accessible and actively monitored. Tampa, St. Petersburg, and Pompano Beach Legistar portals return 19-byte Cloudflare WAF responses to automated requests. The scraper infrastructure is fully in place for all 13 boards — accessing the blocked sites requires a Playwright-based headless browser (see Roadmap). Column indices are discovered dynamically from table headers, so layout changes by any municipality won't break parsing.
+Coral Gables (`coralgables.legistar.com`) is accessible and actively monitored. Tampa, St. Petersburg, and Pompano Beach return WAF blocks to automated requests.
+
+> **What "WAF-blocked" means:** These cities use Web Application Firewalls (Cloudflare) that detect and reject non-browser HTTP requests before the calendar page is served. The scraper receives a 19-byte response instead of HTML and skips the source gracefully. All 13 boards are fully configured in `sources.yaml` and will activate automatically once browser-based scraping (Playwright) is added — see Roadmap.
+
+Column indices are discovered dynamically from table headers, so layout changes by any municipality won't break parsing.
 
 ---
 
@@ -148,13 +152,21 @@ Coral Gables (`coralgables.legistar.com`) is accessible and actively monitored. 
 
 Improvements made after the initial build to harden the pipeline for daily unattended operation:
 
-- **SQLite WAL mode + 5 s busy timeout** — the scraper and dashboard can run concurrently without "database is locked" errors; SQLite will retry for up to 5 seconds before raising an exception.
-- **Centralised geo data** (`utils.py`) — `CITY_TO_COUNTY` and `COUNTY_TO_REGION` are defined once in `utils.py` and imported everywhere; no duplication between `process.py` and `dashboard.py`.
-- **Cached sidebar unread count** — `inject_globals()` stores the unread count in Flask's `g` object so the `COUNT(*)` query runs at most once per request regardless of how many templates reference it.
-- **Resilient Legistar column detection** — the scraper discovers board-name and date column indices by scanning `<th>` header text rather than using hardcoded positional indices, so a municipality's layout change won't silently produce wrong data.
-- **Word-boundary market detection** — `detect_market()` uses `\b` regex boundaries when scanning address fields, preventing partial-word matches (e.g. `daviesfield` no longer triggers the `DAVIE` market).
-- **Explicit Anthropic API error handling** — all three `client.messages.create()` call sites catch `anthropic.APIError` explicitly before the general `Exception` fallback, producing a clean log line and continuing the pipeline rather than crashing the run.
-- **Secure Flask secret key** — loaded from `FLASK_SECRET_KEY` env var; never hardcoded.
+**Database concurrency**
+- **SQLite WAL mode + 5 s busy timeout** — the 10 AM scraper run and the always-on dashboard can access the database simultaneously without "database is locked" crashes; SQLite retries for up to 5 seconds before raising an exception.
+- **Centralised geo data** (`utils.py`) — `CITY_TO_COUNTY` and `COUNTY_TO_REGION` are defined once and imported everywhere, eliminating the risk of the scraper and dashboard disagreeing about which city belongs to which county.
+
+**Dashboard speed**
+- **Request-level unread count cache** — `inject_globals()` writes the sidebar badge count into Flask's `g` object on first access; subsequent template references within the same request reuse the cached value instead of re-querying the database.
+- **Secure Flask secret key** — loaded from `FLASK_SECRET_KEY` env var; never hardcoded in source.
+
+**Data accuracy**
+- **Word-boundary market detection** — `detect_market()` uses `\b` regex boundaries when scanning address fields, preventing false positives from street names that contain city substrings (e.g. `daviesfield` no longer triggers the `DAVIE` market).
+- **Explicit Anthropic API error handling** — all `client.messages.create()` call sites catch `anthropic.APIError` before the general `Exception` fallback, producing a clean log line and allowing the pipeline to continue processing remaining items rather than aborting the run.
+
+**Scraper resilience**
+- **Header-based Legistar column detection** — board-name and date column indices are discovered by scanning `<th>` header text (keywords: Name/Board/Meeting, Date) rather than hardcoded positions 0 and 1. A municipality changing its Legistar layout won't silently write wrong data into the database.
+- **WAF detection and graceful skip** — sites returning Cloudflare challenge pages are identified and skipped with a warning log entry; the rest of the sources in the run continue normally.
 
 ---
 
@@ -229,7 +241,9 @@ Edit `.env` and add your keys:
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Flask session security — generate with: python -c "import secrets; print(secrets.token_hex(32))"
+# Flask session security — generate with either of:
+#   python3 -c 'import os; print(os.urandom(24).hex())'
+#   python3 -c 'import secrets; print(secrets.token_hex(32))'
 FLASK_SECRET_KEY=your-secret-key-here
 ```
 
