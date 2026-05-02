@@ -156,12 +156,12 @@ def detect_market(city_field: Optional[str], address_field: Optional[str],
         if cl in FLORIDA_CITIES:
             return FLORIDA_CITIES[cl]
         for key, val in _SORTED_CITIES:
-            if key in cl:
+            if re.search(rf"\b{re.escape(key)}\b", cl, re.IGNORECASE):
                 return val
     if address_field:
         al = address_field.lower()
         for key, val in _SORTED_CITIES:
-            if key in al:
+            if re.search(rf"\b{re.escape(key)}\b", al, re.IGNORECASE):
                 return val
     return "FLORIDA"
 
@@ -237,6 +237,10 @@ def cmd_classify(limit: Optional[int], dry_run: bool, ids: Optional[list] = None
                 messages=[{"role": "user", "content": user_text}],
             )
             raw = response.content[0].text.strip()
+        except anthropic.APIError as exc:
+            log.error("Anthropic API error: %s", exc)
+            skipped += 1
+            continue
         except Exception as exc:
             log.error("API error  id=%d  %r  — %s", capture_id, title[:60], exc)
             skipped += 1
@@ -546,6 +550,10 @@ def cmd_draft_briefs(limit: Optional[int]) -> None:
                 messages=[{"role": "user", "content": user_text}],
             )
             raw = response.content[0].text.strip()
+        except anthropic.APIError as exc:
+            log.error("Anthropic API error: %s", exc)
+            skipped += 1
+            continue
         except Exception as exc:
             log.error("API error  id=%d  %r  — %s", item_id, row["project_name"], exc)
             skipped += 1
