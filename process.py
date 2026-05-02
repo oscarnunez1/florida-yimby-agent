@@ -626,6 +626,7 @@ def cmd_enrich(limit: Optional[int]) -> None:
                    units, height, extracted_data_json
             FROM extracted_items
             WHERE is_development_item = 1
+              AND florida_relevance   = 1
               AND already_covered     = 0
               AND id NOT IN (SELECT extracted_item_id FROM briefs)
             ORDER BY priority DESC, id
