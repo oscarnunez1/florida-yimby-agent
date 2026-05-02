@@ -6,40 +6,70 @@
   <p class="subtitle">{{ sources|length }} configured sources</p>
 </div>
 
-<table class="data-table">
-  <thead>
+{% set sections = [
+  ("rss",        "RSS Feeds"),
+  ("html_scrape","HTML Scrapers"),
+  ("wp_rest",    "WordPress REST"),
+  ("iqm2",       "Municipal (IQM2)"),
+  ("legistar",   "Municipal (Legistar)"),
+] %}
+
+{% for section_type, section_label in sections %}
+  {% set group = sources | selectattr("type", "equalto", section_type) | list %}
+  {% if group %}
+  <h2 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;
+             color:var(--text-secondary);margin:28px 0 10px;">{{ section_label }}</h2>
+  <table class="data-table" style="margin-bottom:8px">
+    <thead>
+      <tr>
+        <th>Source</th>
+        {% if section_type == "legistar" %}<th>Municipality</th>{% endif %}
+        <th>Last seen</th>
+        <th>Meetings</th>
+        {% if section_type == "legistar" %}
+          <th>Agendas posted</th>
+          <th>Next meeting</th>
+        {% else %}
+          <th>Last 7d</th>
+        {% endif %}
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for src in group %}
     <tr>
-      <th>Source</th>
-      <th>Type</th>
-      <th>Last captured</th>
-      <th>Total</th>
-      <th>Last 7d</th>
-      <th>Status</th>
-    </tr>
-  </thead>
-  <tbody>
-  {% for src in sources %}
-  <tr>
-    <td style="font-weight:500;color:var(--text-primary)">{{ src.name }}</td>
-    <td>
-      <span class="status-badge" style="background:#f1f5f9;color:#475569;text-transform:uppercase">{{ src.type }}</span>
-    </td>
-    <td style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text-secondary)">
-      {{ src.last_captured[:16] if src.last_captured else '—' }}
-    </td>
-    <td style="font-family:'DM Mono',monospace;font-size:13px">{{ src.total_items }}</td>
-    <td style="font-family:'DM Mono',monospace;font-size:13px">{{ src.recent_items }}</td>
-    <td>
-      {% if src.stale %}
-        <span class="health-dot stale"></span>
-        <span style="font-size:12px;color:#ef4444">Stale</span>
-      {% else %}
-        <span class="health-dot ok"></span>
-        <span style="font-size:12px;color:#10b981">OK</span>
+      <td style="font-weight:500;color:var(--text-primary)">{{ src.name }}</td>
+      {% if section_type == "legistar" %}
+        <td style="color:var(--text-secondary);font-size:13px">{{ src.municipality }}</td>
       {% endif %}
-    </td>
-  </tr>
-  {% endfor %}
-  </tbody>
-</table>
+      <td style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text-secondary)">
+        {{ src.last_captured[:16] if src.last_captured else '—' }}
+      </td>
+      <td style="font-family:'DM Mono',monospace;font-size:13px">{{ src.total_items }}</td>
+      {% if section_type == "legistar" %}
+        <td style="font-family:'DM Mono',monospace;font-size:13px">{{ src.recent_items }}</td>
+        <td style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text-secondary)">
+          {{ src.next_meeting or '—' }}
+        </td>
+      {% else %}
+        <td style="font-family:'DM Mono',monospace;font-size:13px">{{ src.recent_items }}</td>
+      {% endif %}
+      <td>
+        {% if section_type == "legistar" and src.total_items == 0 %}
+          <span class="health-dot stale"></span>
+          <span style="font-size:12px;color:#f59e0b">WAF blocked</span>
+        {% elif src.stale %}
+          <span class="health-dot stale"></span>
+          <span style="font-size:12px;color:#ef4444">Stale</span>
+        {% else %}
+          <span class="health-dot ok"></span>
+          <span style="font-size:12px;color:#10b981">OK</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+{% endfor %}
 {% endblock %}
