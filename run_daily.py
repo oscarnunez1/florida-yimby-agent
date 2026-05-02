@@ -2,10 +2,11 @@
 Daily orchestration script for the Florida YIMBY research agent.
 
 Runs in sequence:
-  1. scrape.py          — fetch all sources
-  2. process.py classify — classify new captures
-  3. process.py dedup    — update already_covered flags
-  4. process.py draft-briefs — generate briefs for new uncovered items
+  1. scrape.py              — fetch all sources
+  2. process.py classify    — classify new captures
+  3. process.py dedup       — update already_covered flags
+  4. process.py enrich      — fill missing fields via Tavily + Haiku
+  5. process.py draft-briefs — generate briefs for new uncovered items
 
 Logs each run to the daily_log table.
 """
@@ -56,7 +57,7 @@ def main() -> None:
     print(f"[run_daily] {run_date} — starting pipeline")
 
     # ── Step 1: scrape ────────────────────────────────────────────────────────
-    print("[run_daily] step 1/4: scrape")
+    print("[run_daily] step 1/5: scrape")
     rc, out = _run([PYTHON, "scrape.py"])
     if rc != 0:
         errors["scrape"] = out[-500:] if len(out) > 500 else out
@@ -68,7 +69,7 @@ def main() -> None:
     print(f"[run_daily] {new_captures} new captures")
 
     # ── Step 2: classify ─────────────────────────────────────────────────────
-    print("[run_daily] step 2/4: classify")
+    print("[run_daily] step 2/5: classify")
     rc, out = _run([PYTHON, "process.py", "classify"])
     if rc != 0:
         errors["classify"] = out[-500:] if len(out) > 500 else out
@@ -77,7 +78,7 @@ def main() -> None:
         print("[run_daily] classify OK")
 
     # ── Step 3: dedup ─────────────────────────────────────────────────────────
-    print("[run_daily] step 3/4: dedup")
+    print("[run_daily] step 3/5: dedup")
     rc, out = _run([PYTHON, "process.py", "dedup"])
     if rc != 0:
         errors["dedup"] = out[-500:] if len(out) > 500 else out
@@ -85,8 +86,17 @@ def main() -> None:
     else:
         print("[run_daily] dedup OK")
 
-    # ── Step 4: draft-briefs ──────────────────────────────────────────────────
-    print("[run_daily] step 4/4: draft-briefs")
+    # ── Step 4: enrich ────────────────────────────────────────────────────────
+    print("[run_daily] step 4/5: enrich")
+    rc, out = _run([PYTHON, "process.py", "enrich"])
+    if rc != 0:
+        errors["enrich"] = out[-500:] if len(out) > 500 else out
+        print(f"[run_daily] enrich FAILED (rc={rc})")
+    else:
+        print("[run_daily] enrich OK")
+
+    # ── Step 5: draft-briefs ──────────────────────────────────────────────────
+    print("[run_daily] step 5/5: draft-briefs")
     rc, out = _run([PYTHON, "process.py", "draft-briefs"])
     if rc != 0:
         errors["draft-briefs"] = out[-500:] if len(out) > 500 else out

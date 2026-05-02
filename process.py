@@ -34,7 +34,10 @@ PRIORITY_MAP = {"high": 3, "medium": 2, "low": 1}
 CONTENT_TRUNCATE = 6000  # chars sent to Haiku; keeps cost low while covering most articles
 MAX_TOKENS = 1024
 
-DRAFT_PROMPT_PATH = Path(__file__).parent / "prompts" / "draft_brief.md"
+DRAFT_PROMPT_PATH  = Path(__file__).parent / "prompts" / "draft_brief.md"
+ENRICH_PROMPT_PATH = Path(__file__).parent / "prompts" / "enrich.md"
+TAVILY_SEARCH_URL  = "https://api.tavily.com/search"
+ENRICH_FIELDS      = ("developer", "architect", "contractor", "units", "height_ft")
 WP_API_URL = "https://floridayimby.com/wp-json/wp/v2/posts"
 HTML_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 REQUEST_TIMEOUT = 20
@@ -535,6 +538,10 @@ def cmd_draft_briefs(limit: Optional[int]) -> None:
         if hearing_board:
             user_parts.append(f"Hearing board: {hearing_board}")
 
+        enrichment_sources = data.get("enrichment_sources", [])
+        if enrichment_sources:
+            user_parts.append(f"Enrichment sources: {', '.join(enrichment_sources)}")
+
         source_content = (row["source_content"] or "").strip()
         if source_content:
             user_parts.append(f"\nSource content:\n{source_content[:4000]}")
@@ -593,6 +600,153 @@ def cmd_draft_briefs(limit: Optional[int]) -> None:
         ok += 1
 
     log.info("Done — %d briefs drafted, %d skipped", ok, skipped)
+
+
+# ── enrich ───────────────────────────────────────────────────────────────────
+
+def cmd_enrich(limit: Optional[int]) -> None:
+    """
+    For each uncovered FL dev item not yet turned into a brief, search Tavily for
+    missing project details (developer, architect, contractor, units, height_ft),
+    extract facts via Haiku, and merge them into extracted_data_json.
+    Requires TAVILY_API_KEY in environment.
+    """
+    import os
+    tavily_key = os.environ.get("TAVILY_API_KEY")
+    if not tavily_key:
+        log.warning("TAVILY_API_KEY not set — skipping enrichment")
+        return
+
+    system_prompt = ENRICH_PROMPT_PATH.read_text()
+    client = anthropic.Anthropic()
+
+    with get_conn() as conn:
+        q = """
+            SELECT id, project_name, address, city, developer, architect,
+                   units, height, extracted_data_json
+            FROM extracted_items
+            WHERE is_development_item = 1
+              AND already_covered     = 0
+              AND id NOT IN (SELECT extracted_item_id FROM briefs)
+            ORDER BY priority DESC, id
+        """
+        if limit:
+            q += f" LIMIT {limit}"
+        rows = conn.execute(q).fetchall()
+
+    if not rows:
+        log.info("No items to enrich")
+        return
+
+    log.info("Enriching up to %d items via Tavily", len(rows))
+    enriched = skipped = 0
+
+    for row in rows:
+        data = json.loads(row["extracted_data_json"] or "{}")
+
+        missing = [
+            f for f in ENRICH_FIELDS
+            if not (row[f] if f in ("developer", "architect", "units", "height") else data.get(f))
+        ]
+        if not missing:
+            log.info("  id=%-4d  all fields present — skip", row["id"])
+            continue
+
+        project = row["project_name"] or ""
+        address = row["address"] or ""
+        city    = row["city"] or ""
+        search_query = " ".join(filter(None, [project, address, city, "Florida real estate"]))
+
+        try:
+            resp = httpx.post(
+                TAVILY_SEARCH_URL,
+                json={
+                    "api_key": tavily_key,
+                    "query": search_query,
+                    "include_raw_content": True,
+                    "max_results": 3,
+                },
+                timeout=REQUEST_TIMEOUT,
+            )
+            resp.raise_for_status()
+            results = resp.json().get("results", [])
+        except Exception as exc:
+            log.warning("  id=%-4d  Tavily search failed — %s", row["id"], exc)
+            skipped += 1
+            continue
+
+        sources = [r["url"] for r in results if r.get("url")]
+        raw_content = "\n\n---\n\n".join(
+            r.get("raw_content") or r.get("content") or "" for r in results
+        )[:6000]
+
+        if not raw_content.strip():
+            log.info("  id=%-4d  no usable content from Tavily", row["id"])
+            skipped += 1
+            continue
+
+        user_text = (
+            f"Project: {project}\nAddress: {address}\nCity: {city}\n\n"
+            f"Search results:\n{raw_content}"
+        )
+
+        try:
+            haiku_resp = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=256,
+                system=[{"type": "text", "text": system_prompt,
+                         "cache_control": {"type": "ephemeral"}}],
+                messages=[{"role": "user", "content": user_text}],
+            )
+            raw_text = _strip_fences(haiku_resp.content[0].text.strip())
+            # raw_decode stops after the first valid JSON value; ignores trailing text
+            new_facts, _ = json.JSONDecoder().raw_decode(raw_text)
+        except anthropic.APIError as exc:
+            log.error("  id=%-4d  Anthropic API error — %s", row["id"], exc)
+            skipped += 1
+            continue
+        except Exception as exc:
+            log.warning("  id=%-4d  Haiku extraction failed — %s", row["id"], exc)
+            skipped += 1
+            continue
+
+        if not isinstance(new_facts, dict):
+            log.warning("  id=%-4d  unexpected Haiku response type", row["id"])
+            skipped += 1
+            continue
+
+        # Merge new facts — never overwrite existing values
+        filled: list[str] = []
+        col_updates: dict[str, object] = {}
+        for field in ENRICH_FIELDS:
+            if field not in new_facts:
+                continue
+            col = "height" if field == "height_ft" else field
+            existing = row[col] if col in ("developer", "architect", "units", "height") else data.get(field)
+            if not existing:
+                data[field] = new_facts[field]
+                filled.append(field)
+                if col in ("developer", "architect", "units", "height"):
+                    col_updates[col] = str(new_facts[field])
+
+        if sources:
+            data["enrichment_sources"] = sources
+
+        log.info("  id=%-4d  filled=%s  [%s]", row["id"], filled or "none", project[:50])
+
+        set_clause = ", ".join(f"{c} = ?" for c in col_updates)
+        set_vals   = list(col_updates.values())
+        with get_conn() as conn:
+            conn.execute(
+                f"UPDATE extracted_items SET extracted_data_json = ?"
+                + (f", {set_clause}" if set_clause else "")
+                + " WHERE id = ?",
+                [json.dumps(data)] + set_vals + [row["id"]],
+            )
+
+        enriched += 1
+
+    log.info("Enrich done — %d enriched, %d skipped", enriched, skipped)
 
 
 # ── update markets ────────────────────────────────────────────────────────────
@@ -805,6 +959,10 @@ def main() -> None:
 
     sub.add_parser("dedup", help="Fuzzy-match extracted_items against coverage_index")
 
+    p_enrich = sub.add_parser("enrich", help="Enrich missing project fields via Tavily web search + Haiku")
+    p_enrich.add_argument("--limit", type=int, default=None, metavar="N",
+                          help="Enrich at most N items per run")
+
     p_draft = sub.add_parser("draft-briefs", help="Draft briefs for uncovered FL dev items using Opus")
     p_draft.add_argument("--limit", type=int, default=None, metavar="N",
                          help="Draft at most N briefs per run")
@@ -822,6 +980,8 @@ def main() -> None:
         cmd_ingest_coverage(limit=args.limit)
     elif args.command == "dedup":
         cmd_dedup()
+    elif args.command == "enrich":
+        cmd_enrich(limit=args.limit)
     elif args.command == "draft-briefs":
         cmd_draft_briefs(limit=args.limit)
     elif args.command == "update-markets":
