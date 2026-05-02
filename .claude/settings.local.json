@@ -65,7 +65,11 @@
       "Bash(xargs kill *)",
       "Bash(curl -s \"http://127.0.0.1:5000/inbox?region=South+Florida\")",
       "Bash(curl -s \"http://127.0.0.1:5000/archive?date=custom&from_date=2026-01-01&to_date=2026-01-31\")",
-      "Bash(curl -s \"http://127.0.0.1:5000/inbox?source=St+Pete+Rising&status=all\")"
+      "Bash(curl -s \"http://127.0.0.1:5000/inbox?source=St+Pete+Rising&status=all\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://127.0.0.1:5000/inbox\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://127.0.0.1:5000/archive\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://127.0.0.1:5000/inbox?status=used\")",
+      "Bash(curl -sv -H 'User-Agent: Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/124.0.0.0 Safari/537.36' -H 'Accept: text/html,application/xhtml+xml' -H 'Accept-Language: en-US,en;q=0.9' https://tampa.legistar.com/Calendar.aspx)"
     ]
   }
 }

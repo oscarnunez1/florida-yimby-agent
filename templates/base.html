@@ -27,6 +27,8 @@
       --shadow-dropdown: 0 8px 24px rgba(0,0,0,0.12);
       --sidebar-w: 240px;
       --border-sidebar: rgba(255,255,255,0.07);
+      --font-heading: 'Playfair Display', serif;
+      --font-mono: 'DM Mono', monospace;
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -805,21 +807,13 @@
 </header>
 
 <nav class="sidebar" id="sidebar">
-  <div style="padding:24px 20px;border-bottom:1px solid var(--border-sidebar);display:flex;justify-content:center;">
-    <a href="/" aria-label="Florida YIMBY Intel">
-      <svg width="40" height="40" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <!-- Building -->
-        <rect x="19" y="22" width="10" height="12" fill="#f4a89a"/>
-        <rect x="21" y="18" width="6" height="5" fill="#f4a89a"/>
-        <rect x="23" y="15" width="2" height="4" fill="#f4a89a"/>
-        <!-- Florida outline -->
-        <path d="M 5,18 H 17 V 13 H 34 V 18 H 39 V 22 H 34 V 27 L 31,32 L 28,37 L 26,41 L 24,44 L 22,41 L 20,36 L 16,29 L 11,23 L 7,21 Z"
-              stroke="#e8522a" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
-        <!-- Location pin -->
-        <circle cx="24" cy="16" r="5" stroke="#0a0e1a" stroke-width="1.5"/>
-        <path d="M 19,16 Q 19,27 24,31 Q 29,27 29,16" stroke="#0a0e1a" stroke-width="1.5" stroke-linejoin="round"/>
-      </svg>
-    </a>
+  <div style="padding:24px 20px; border-bottom:1px solid var(--border-sidebar);">
+    <div style="font-family:var(--font-heading); font-size:18px; font-weight:700; color:white; letter-spacing:0.02em;">
+      YIMBY Agent
+    </div>
+    <div style="font-family:var(--font-mono); font-size:11px; font-weight:400; color:var(--text-sidebar); opacity:0.7; margin-top:4px; letter-spacing:0.05em;">
+      FL
+    </div>
   </div>
   <div class="sidebar-nav">
     <a href="/inbox" class="nav-link {{ 'active' if active_page == 'inbox' }}">
