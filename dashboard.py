@@ -414,6 +414,39 @@ def sources():
                 "stale":         stale,
             })
 
+    with get_conn() as conn:
+        legistar_stats = {
+            row["source"]: row
+            for row in conn.execute("""
+                SELECT
+                    source,
+                    municipality,
+                    board,
+                    COUNT(*)                                        AS total_meetings,
+                    MAX(first_seen_at)                              AS last_seen,
+                    SUM(CASE WHEN agenda_url IS NOT NULL
+                             THEN 1 ELSE 0 END)                    AS agendas_posted,
+                    MAX(meeting_date)                               AS next_meeting
+                FROM meetings
+                GROUP BY source
+            """).fetchall()
+        }
+
+    for src in cfg.get("legistar", []):
+        stats        = legistar_stats.get(src["name"])
+        municipality = src.get("municipality", "")
+        stale        = not stats or stats["total_meetings"] == 0
+        rows.append({
+            "name":          src["name"],
+            "type":          "legistar",
+            "municipality":  municipality,
+            "last_captured": stats["last_seen"]      if stats else None,
+            "total_items":   stats["total_meetings"] if stats else 0,
+            "recent_items":  stats["agendas_posted"] if stats else 0,
+            "next_meeting":  stats["next_meeting"]   if stats else None,
+            "stale":         stale,
+        })
+
     return render_template("sources.html", sources=rows, active_page="sources")
 
 
