@@ -301,24 +301,12 @@ def inject_globals():
 @app.route("/")
 @app.route("/inbox")
 def inbox():
-    filters = {
-        "region":   request.args.get("region",   "").strip(),
-        "county":   request.args.get("county",   "").strip(),
-        "city":     request.args.get("city",     "").strip(),
-        "date":     request.args.get("date",     "last_7").strip(),
-        "from_date":request.args.get("from_date","").strip(),
-        "to_date":  request.args.get("to_date",  "").strip(),
-        "source":   request.args.get("source",   "").strip(),
-        "status":   request.args.get("status",   "").strip(),
-        "hearings": request.args.get("hearings", "").strip(),
-    }
+    # Only status is server-side; all other filters are handled client-side.
+    status = request.args.get("status", "").strip()
 
     where: list = []
     params: list = []
 
-    _apply_common_filters(where, params, filters)
-
-    status = filters["status"]
     if status == "used":
         where.append("b.status = 'used'")
     elif status == "snoozed":
@@ -326,11 +314,10 @@ def inbox():
     elif status == "dismissed":
         where.append("b.status = 'dismissed'")
     elif status == "all":
-        pass  # no status filter
+        pass
     else:
-        # default: unread
         where.append(
-            "(b.status = 'new'"
+            "(b.status IN ('new', 'pending')"
             " OR (b.status = 'snoozed' AND b.snoozed_until <= datetime('now')))"
         )
         where.append("ei.already_covered = 0")
@@ -339,10 +326,8 @@ def inbox():
 
     with get_conn() as conn:
         briefs = conn.execute(
-            _brief_query_base() + f"""
-            {where_sql}
-            ORDER BY ei.priority DESC, b.created_at DESC
-            """,
+            _brief_query_base()
+            + f"{where_sql} ORDER BY ei.priority DESC, b.created_at DESC",
             params,
         ).fetchall()
         all_sources = [r[0] for r in conn.execute(
@@ -353,18 +338,15 @@ def inbox():
         ).fetchall()]
 
     all_counties, all_cities = _geo_lookups()
-    active_filters = _active_chips("/inbox", filters, default_status="")
 
     return render_template(
         "inbox.html",
         briefs=briefs,
-        filters=filters,
-        active_filters=active_filters,
+        status=status,
         all_counties=all_counties,
         all_cities=all_cities,
         all_sources=all_sources,
         geo_json=_geo_json_for_template(all_counties, all_cities),
-        market_counts=Counter(b["market"] or "FLORIDA" for b in briefs),
         active_page="inbox",
     )
 
@@ -378,60 +360,10 @@ def history_redirect():
 
 @app.route("/archive")
 def archive():
-    page = max(1, request.args.get("page", 1, int))
-    filters = {
-        "region":   request.args.get("region",   "").strip(),
-        "county":   request.args.get("county",   "").strip(),
-        "city":     request.args.get("city",     "").strip(),
-        "date":     request.args.get("date",     "").strip(),
-        "from_date":request.args.get("from_date","").strip(),
-        "to_date":  request.args.get("to_date",  "").strip(),
-        "source":   request.args.get("source",   "").strip(),
-        "status":   request.args.get("status",   "").strip(),
-        "hearings": request.args.get("hearings", "").strip(),
-        # legacy params kept for pagination URL building
-        "board":    request.args.get("board",    "").strip(),
-        "priority": request.args.get("priority", "").strip(),
-    }
-
-    where: list = []
-    params: list = []
-
-    _apply_common_filters(where, params, filters)
-
-    # Legacy board filter
-    if filters.get("board"):
-        where.append("b.hearing_board LIKE ?")
-        params.append(f"%{filters['board']}%")
-
-    # Legacy priority filter
-    if filters.get("priority"):
-        where.append("ei.priority = ?")
-        params.append(int(filters["priority"]))
-
-    status = filters["status"]
-    if status == "new":
-        where.append("b.status = 'new'")
-    elif status in ("used", "dismissed", "snoozed"):
-        where.append("b.status = ?")
-        params.append(status)
-    # else: "" or "all" = no status filter
-
-    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
-    offset = (page - 1) * PER_PAGE
-
+    # All filtering is client-side; load every brief.
     with get_conn() as conn:
-        total = conn.execute(
-            "SELECT COUNT(*) FROM briefs b"
-            " JOIN extracted_items ei ON ei.id = b.extracted_item_id"
-            " JOIN raw_captures rc ON rc.id = ei.raw_capture_id"
-            f" {where_sql}",
-            params,
-        ).fetchone()[0]
-
         briefs = conn.execute(
-            _brief_query_base() + f"{where_sql} ORDER BY b.created_at DESC LIMIT ? OFFSET ?",
-            params + [PER_PAGE, offset],
+            _brief_query_base() + "ORDER BY b.created_at DESC",
         ).fetchall()
         all_sources = [r[0] for r in conn.execute(
             "SELECT DISTINCT rc.source FROM briefs b"
@@ -441,15 +373,10 @@ def archive():
         ).fetchall()]
 
     all_counties, all_cities = _geo_lookups()
-    active_filters = _active_chips("/archive", filters, default_status="")
 
-    total_pages = max(1, math.ceil(total / PER_PAGE))
     return render_template(
         "archive.html",
-        briefs=briefs, total=total,
-        page=page, total_pages=total_pages,
-        filters=filters,
-        active_filters=active_filters,
+        briefs=briefs,
         all_counties=all_counties,
         all_cities=all_cities,
         all_sources=all_sources,
