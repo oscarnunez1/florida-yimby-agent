@@ -155,6 +155,7 @@
   </div>
 
   <div class="card-quick-actions">
+    <button onclick="navigateToCard(event, this.closest('.brief-card'))">📖 Read Full Brief</button>
     <button onclick="dotAction({{ b.id }}, 'use'); event.stopPropagation();">✓ Used</button>
     <button onclick="dotAction({{ b.id }}, 'snooze'); event.stopPropagation();">⏱ Snooze</button>
     <button onclick="toggleDismissSub(event, {{ b.id }})">✕ Dismiss</button>

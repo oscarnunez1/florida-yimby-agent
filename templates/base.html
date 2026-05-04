@@ -917,6 +917,11 @@ function toggleDismissSub(e, id) {
   sub.hidden = !sub.hidden;
 }
 
+/* ── Card navigation ── */
+function navigateToCard(e, card) {
+  window.location.href = '/briefs/' + card.dataset.id;
+}
+
 /* ── Card actions ── */
 function dotAction(id, action) {
   closeAllMenus();
