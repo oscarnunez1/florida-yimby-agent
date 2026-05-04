@@ -70,3 +70,94 @@
   <button class="btn btn-ghost" onclick="dotAction({{ brief.id }}, 'snooze'); closeBriefModal();">⏱ Snooze 24h</button>
   <a href="/briefs/{{ brief.id }}" class="btn btn-ghost" target="_blank">Open full page ↗</a>
 </div>
+
+<div class="draft-article-section" style="margin-top:24px;border-top:1px solid var(--border-light);padding-top:20px;">
+  <button id="draft-article-btn"
+          onclick="draftArticle({{ brief.id }})"
+          style="background:var(--accent);color:white;border:none;border-radius:6px;padding:10px 20px;font-family:var(--font-mono);font-size:12px;font-weight:600;cursor:pointer;letter-spacing:0.05em;transition:all 0.15s;">
+    ✦ Draft Article
+  </button>
+  <span id="draft-article-status" style="margin-left:12px;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);"></span>
+
+  <div id="draft-article-output" style="display:none;margin-top:20px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.1em;">Draft Article</span>
+      <button onclick="copyArticle()" style="font-family:var(--font-mono);font-size:11px;color:var(--accent);background:transparent;border:1px solid var(--accent);border-radius:4px;padding:4px 10px;cursor:pointer;">Copy HTML</button>
+    </div>
+    <div id="draft-article-preview"
+         style="background:var(--bg-main);border:1px solid var(--border-light);border-radius:8px;padding:20px 24px;font-family:var(--font-body);font-size:15px;line-height:1.7;color:var(--text-primary);">
+    </div>
+    <textarea id="draft-article-raw"
+              style="display:none;width:100%;margin-top:8px;padding:12px;font-family:var(--font-mono);font-size:11px;border:1px solid var(--border-light);border-radius:6px;background:var(--bg-main);color:var(--text-muted);resize:vertical;height:120px;box-sizing:border-box;"
+              readonly></textarea>
+    <button onclick="toggleRawHTML()"
+            style="margin-top:8px;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);background:transparent;border:none;cursor:pointer;text-decoration:underline;">
+      Show raw HTML
+    </button>
+  </div>
+</div>
+
+<style>
+#draft-article-btn:disabled { opacity:0.7; cursor:not-allowed; }
+#draft-article-btn:hover:not(:disabled) { background:var(--accent-dark,#c44a20); transform:translateY(-1px); }
+</style>
+
+<script>
+async function draftArticle(briefId) {
+  const btn    = document.getElementById('draft-article-btn');
+  const status = document.getElementById('draft-article-status');
+  const output = document.getElementById('draft-article-output');
+  const preview = document.getElementById('draft-article-preview');
+  const raw    = document.getElementById('draft-article-raw');
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Drafting...';
+  status.textContent = 'Claude Opus is writing your article...';
+  output.style.display = 'none';
+
+  try {
+    const resp = await fetch(`/briefs/${briefId}/draft-article`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'}
+    });
+    const data = await resp.json();
+
+    if (data.ok) {
+      preview.innerHTML = data.html;
+      raw.value = data.html;
+      output.style.display = 'block';
+      btn.textContent = '✦ Re-draft Article';
+      status.textContent = 'Draft complete';
+    } else {
+      status.textContent = `Error: ${data.error}`;
+      btn.textContent = '✦ Draft Article';
+    }
+  } catch (err) {
+    status.textContent = 'Request failed';
+    btn.textContent = '✦ Draft Article';
+  }
+
+  btn.disabled = false;
+}
+
+function copyArticle() {
+  const raw = document.getElementById('draft-article-raw').value;
+  navigator.clipboard.writeText(raw).then(() => {
+    const btn = event.target;
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy HTML', 1500);
+  });
+}
+
+function toggleRawHTML() {
+  const raw = document.getElementById('draft-article-raw');
+  const btn = event.target;
+  if (raw.style.display === 'none') {
+    raw.style.display = 'block';
+    btn.textContent = 'Hide raw HTML';
+  } else {
+    raw.style.display = 'none';
+    btn.textContent = 'Show raw HTML';
+  }
+}
+</script>

@@ -9,6 +9,7 @@ Routes:
   GET  /coverage              — Coverage index with search
   GET  /briefs/<id>           — Single-brief detail page
   GET  /logs                  — Pipeline run history + latest log file
+  POST /briefs/<id>/draft-article — Generate draft article via Claude Opus
   POST /briefs/<id>/use       — Mark brief as used
   POST /briefs/<id>/dismiss   — Dismiss brief with reason
   POST /briefs/<id>/snooze    — Snooze brief 24 h
@@ -518,6 +519,74 @@ def brief_fragment(brief_id: int):
     if not row:
         return "Brief not found", 404
     return render_template("brief_fragment.html", brief=row)
+
+
+@app.route("/briefs/<int:brief_id>/draft-article", methods=["POST"])
+def draft_article(brief_id: int):
+    """Generate a publication-ready draft article from a brief using Claude Opus."""
+    with get_conn() as conn:
+        row = conn.execute("""
+            SELECT b.headline, b.lede, b.body, b.fact_sheet_json,
+                   b.confirmed_vs_pending, b.open_questions,
+                   b.hearing_date, b.hearing_board,
+                   ei.project_name, ei.address, ei.market,
+                   ei.developer, ei.architect, ei.units, ei.height,
+                   ei.extracted_data_json,
+                   rc.source, rc.url AS source_url
+            FROM briefs b
+            JOIN extracted_items ei ON b.extracted_item_id = ei.id
+            JOIN raw_captures    rc ON ei.raw_capture_id   = rc.id
+            WHERE b.id = ?
+        """, (brief_id,)).fetchone()
+
+    if not row:
+        return jsonify(ok=False, error="Brief not found"), 404
+
+    system_prompt = (Path(__file__).parent / "prompts" / "draft_article.md").read_text()
+
+    brief_sections = []
+    if row['lede']:
+        brief_sections.append(f"LEDE:\n{row['lede']}")
+    if row['body']:
+        brief_sections.append(f"BODY:\n{row['body']}")
+    if row['fact_sheet_json']:
+        brief_sections.append(f"FACT SHEET:\n{row['fact_sheet_json']}")
+    if row['confirmed_vs_pending']:
+        brief_sections.append(f"CONFIRMED VS PENDING:\n{row['confirmed_vs_pending']}")
+    if row['open_questions']:
+        brief_sections.append(f"OPEN QUESTIONS:\n{row['open_questions']}")
+    if row['hearing_date']:
+        brief_sections.append(f"HEARING: {row['hearing_board']} on {row['hearing_date']}")
+
+    user_message = f"""RESEARCH BRIEF:
+
+Headline: {row['headline']}
+Project: {row['project_name']}
+Address: {row['address']}
+Market: {row['market']}
+Developer: {row['developer']}
+Architect: {row['architect']}
+Units: {row['units']}
+Height: {row['height']}
+Source: {row['source']}
+Source URL: {row['source_url']}
+
+{chr(10).join(brief_sections)}
+"""
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic()
+        response = client.messages.create(
+            model="claude-opus-4-6",
+            max_tokens=1500,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        )
+        article_html = response.content[0].text.strip()
+        return jsonify(ok=True, html=article_html)
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)), 500
 
 
 # ── Card actions (JSON API) ───────────────────────────────────────────────────
