@@ -189,6 +189,8 @@ def scrape_rss_sources(sources: list[dict]) -> tuple[int, int]:
         if new_entry_items:
             log.info("Fetching OG images for %d new RSS items…", len(new_entry_items))
         for source_name, article_url in new_entry_items:
+            if "granicus.com" in article_url or "MediaPlayer.php" in article_url:
+                continue
             time.sleep(0.5)
             og_url = fetch_og_image(article_url)
             if og_url:
@@ -608,6 +610,7 @@ def scrape_legistar_sources(sources: list[dict]) -> tuple[int, int]:
     """
     total_checked = 0
     total_inserted = 0
+    waf_blocked: list[dict] = []
 
     with get_conn() as conn:
         for source in sources:
@@ -632,8 +635,13 @@ def scrape_legistar_sources(sources: list[dict]) -> tuple[int, int]:
                 log.warning("  SKIP  %s — %s", name, exc)
                 continue
 
+            if "Invalid parameters!" in r.text:
+                log.warning("  SKIP  %s — Legistar returned 'Invalid parameters!' (URL may be misconfigured)", name)
+                continue
+
             if "<title>Just a moment" in r.text or "cf-browser-verification" in r.text:
-                log.warning("  SKIP  %s — Cloudflare WAF challenge", name)
+                log.warning("  WAF  %s — Cloudflare challenge, queued for Playwright", name)
+                waf_blocked.append(source)
                 continue
 
             tree = HTMLParser(r.text)
@@ -641,7 +649,8 @@ def scrape_legistar_sources(sources: list[dict]) -> tuple[int, int]:
 
             if not rows:
                 if len(r.text) < 2000:
-                    log.warning("  SKIP  %s — no rows found (possible WAF block, %d chars)", name, len(r.text))
+                    log.warning("  WAF  %s — no rows, short response (%d chars), queued for Playwright", name, len(r.text))
+                    waf_blocked.append(source)
                 else:
                     log.warning("  No rows found for  %s", name)
                 continue
@@ -770,7 +779,165 @@ def scrape_legistar_sources(sources: list[dict]) -> tuple[int, int]:
                         if cur.rowcount:
                             total_inserted += 1
 
+    if waf_blocked:
+        log.info("── Playwright handoff for %d WAF-blocked sources ──", len(waf_blocked))
+        scrape_legistar_playwright(waf_blocked)
+
     return total_checked, total_inserted
+
+
+# ── Playwright fallback for WAF-protected Legistar ────────────────────────────
+
+def scrape_legistar_playwright(sources: list[dict]) -> int:
+    """
+    Scrape Legistar sources that returned a Cloudflare WAF challenge to httpx.
+    Uses a real Chromium browser via Playwright to load the rendered page.
+    Sources are sorted by URL so the same calendar page is loaded only once.
+    Returns count of new meetings inserted.
+    """
+    try:
+        from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+    except ImportError:
+        log.warning("Playwright not installed — skipping WAF-protected Legistar sources")
+        return 0
+
+    new_total = 0
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+        )
+        context = browser.new_context(
+            user_agent=HTML_USER_AGENT,
+            viewport={"width": 1280, "height": 800},
+        )
+        context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"
+        )
+        page = context.new_page()
+        last_url = ""
+        tree = None
+        board_col = 0
+        date_col = 1
+
+        for src in sorted(sources, key=lambda s: s["url"]):
+            url          = src["url"]
+            source_name  = src["name"]
+            board        = src.get("board", "")
+            municipality = src.get("municipality", source_name)
+            lookahead    = src.get("lookahead_days", 60)
+
+            if url != last_url:
+                try:
+                    log.info("Playwright: loading %s", url)
+                    page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+                    page.wait_for_selector("tr.rgRow, tr.rgAltRow", timeout=30_000)
+                except PWTimeout:
+                    log.warning("Playwright: timeout loading %s", url)
+                    last_url = url
+                    tree = None
+                    continue
+                except Exception as exc:
+                    log.warning("Playwright: error loading %s — %s", url, exc)
+                    last_url = url
+                    tree = None
+                    continue
+
+                html = page.content()
+                tree = HTMLParser(html)
+                last_url = url
+                board_col = 0
+                date_col = 1
+                header_row = tree.css_first("tr.rgHeader, thead tr, tr:first-child")
+                if header_row:
+                    headers = [th.text(strip=True).lower() for th in header_row.css("th, td")]
+                    for i, h in enumerate(headers):
+                        if any(kw in h for kw in ("name", "board", "meeting")):
+                            board_col = i
+                        elif "date" in h:
+                            date_col = i
+
+            if tree is None:
+                log.warning("Playwright: no page content for %s — skip", source_name)
+                continue
+
+            row_sel = src.get("row_selector", "tr.rgRow, tr.rgAltRow")
+            rows = tree.css(row_sel)
+            log.info("Playwright: %d rows for %s (board=%r)", len(rows), source_name, board)
+            today  = datetime.now(timezone.utc).date()
+            cutoff = today + timedelta(days=lookahead)
+
+            for row in rows:
+                cells = row.css("td")
+                if len(cells) <= max(board_col, date_col):
+                    continue
+                board_text = cells[board_col].text(strip=True)
+                if board and board.lower() not in board_text.lower():
+                    continue
+                date_str = cells[date_col].text(strip=True).split()[0]
+                meeting_date = None
+                meeting_day  = None
+                try:
+                    dt = datetime.strptime(date_str, "%m/%d/%Y")
+                    meeting_day  = dt.date()
+                    meeting_date = dt.strftime("%Y-%m-%d")
+                except ValueError:
+                    pass
+                if meeting_day and meeting_day > cutoff:
+                    continue
+                detail_link = row.css_first("a[href*='MeetingDetail.aspx']")
+                if not detail_link:
+                    continue
+                detail_href = detail_link.attributes.get("href", "").strip()
+                if not detail_href:
+                    continue
+                meeting_url = urljoin(url, detail_href)
+
+                agenda_url      = None
+                text_agenda_url = None
+                for a in row.css("a"):
+                    href = a.attributes.get("href", "") or ""
+                    if "View.ashx?M=A&" in href or href.endswith("View.ashx?M=A"):
+                        text_agenda_url = urljoin(url, href)
+                    elif "View.ashx?M=PA&" in href or href.endswith("View.ashx?M=PA"):
+                        agenda_url = urljoin(url, href)
+                    if agenda_url and text_agenda_url:
+                        break
+
+                with get_conn() as conn:
+                    prior = conn.execute(
+                        "SELECT agenda_url FROM meetings WHERE meeting_url = ?",
+                        (meeting_url,),
+                    ).fetchone()
+                    if prior is None:
+                        conn.execute(
+                            """INSERT INTO meetings
+                                   (source, meeting_url, board, meeting_date,
+                                    agenda_url, agenda_posted_at, municipality)
+                               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                            (
+                                source_name, meeting_url, board_text, meeting_date,
+                                agenda_url,
+                                datetime.now(timezone.utc).isoformat() if agenda_url else None,
+                                municipality,
+                            ),
+                        )
+                        new_total += 1
+                        log.info("  New meeting: %s %s", source_name, meeting_date or "?")
+                    elif prior["agenda_url"] is None and agenda_url:
+                        conn.execute(
+                            """UPDATE meetings
+                               SET agenda_url = ?, agenda_posted_at = datetime('now')
+                               WHERE meeting_url = ?""",
+                            (agenda_url, meeting_url),
+                        )
+                        log.info("  AGENDA NEWLY POSTED  [%s]  %s", board_text, meeting_date or "")
+
+        context.close()
+        browser.close()
+
+    log.info("Playwright Legistar done — %d new meetings", new_total)
+    return new_total
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

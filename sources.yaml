@@ -34,6 +34,10 @@ rss:
     tags: [florida, development, commercial, real-estate, business, statewide]
     # Custom CMS; full-text RSS at non-standard path /rss/headlines/all/
 
+  - name: St Pete Granicus
+    url: https://stpete.granicus.com/ViewPublisherRSS.php?view_id=14&mode=podcast
+    tags: [florida, municipal, st-pete, pinellas]
+
   # ── Sources without RSS — not added ──────────────────────────────────────
   # One for the Money (oftmw.com/florida): Wix site — no RSS, no WP REST API.
   #   To add: would need an HTML scraper with Wix-specific selectors or
@@ -93,50 +97,12 @@ iqm2:
 # Legistar-powered government meeting calendars.
 # board: substring matched (case-insensitive) against the first column of each calendar row.
 # municipality: display label stored in the meetings table.
-# Tampa and St. Pete may return WAF blocks for automated access — scraper handles gracefully.
+#
+# Tampa, St. Pete, Pompano Beach: these municipalities do NOT use public Legistar instances.
+# Tampa uses tampagov.net/agendas (OnBase), St. Pete uses stpete.granicus.com (Granicus RSS),
+# Pompano Beach uses pompanobeachfl.gov/government/development-services/planning-and-zoning (custom portal).
+# Custom scrapers for these are deferred to a future session.
 legistar:
-  - name: Tampa Planning Commission
-    url: https://tampa.legistar.com/Calendar.aspx
-    municipality: Tampa
-    board: Planning Commission
-    lookahead_days: 60
-
-  - name: Tampa City Council
-    url: https://tampa.legistar.com/Calendar.aspx
-    municipality: Tampa
-    board: City Council
-    lookahead_days: 60
-
-  - name: Tampa Variance Review Board
-    url: https://tampa.legistar.com/Calendar.aspx
-    municipality: Tampa
-    board: Variance Review Board
-    lookahead_days: 60
-
-  - name: Tampa Architectural Review Committee
-    url: https://tampa.legistar.com/Calendar.aspx
-    municipality: Tampa
-    board: Architectural Review Committee
-    lookahead_days: 60
-
-  - name: St. Pete Planning Commission
-    url: https://stpete.legistar.com/Calendar.aspx
-    municipality: St. Petersburg
-    board: Planning Commission
-    lookahead_days: 60
-
-  - name: St. Pete City Council
-    url: https://stpete.legistar.com/Calendar.aspx
-    municipality: St. Petersburg
-    board: City Council
-    lookahead_days: 60
-
-  - name: St. Pete Board of Adjustment
-    url: https://stpete.legistar.com/Calendar.aspx
-    municipality: St. Petersburg
-    board: Board of Adjustment
-    lookahead_days: 60
-
   - name: Coral Gables Planning and Zoning Board
     url: https://coralgables.legistar.com/Calendar.aspx
     municipality: Coral Gables
@@ -147,30 +113,6 @@ legistar:
     url: https://coralgables.legistar.com/Calendar.aspx
     municipality: Coral Gables
     board: Board of Architects
-    lookahead_days: 60
-
-  - name: Pompano Beach CRA
-    url: https://pompanobeach.legistar.com/Calendar.aspx
-    municipality: Pompano Beach
-    board: Community Redevelopment Agency
-    lookahead_days: 60
-
-  - name: Pompano Beach Planning and Zoning Board
-    url: https://pompanobeach.legistar.com/Calendar.aspx
-    municipality: Pompano Beach
-    board: Planning and Zoning Board
-    lookahead_days: 60
-
-  - name: Pompano Beach City Commission
-    url: https://pompanobeach.legistar.com/Calendar.aspx
-    municipality: Pompano Beach
-    board: City Commission
-    lookahead_days: 60
-
-  - name: Pompano Beach AARB
-    url: https://pompanobeach.legistar.com/Calendar.aspx
-    municipality: Pompano Beach
-    board: Architectural Appearance Review Board
     lookahead_days: 60
 
 html_scrape_deferred:
