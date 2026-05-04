@@ -55,6 +55,13 @@
     {% endfor %}
   </select>
 
+  <select id="priority-filter">
+    <option value="">All Priorities</option>
+    <option value="1">High</option>
+    <option value="2">Medium</option>
+    <option value="3">Low</option>
+  </select>
+
   <!-- Status: fully client-side since all briefs are loaded -->
   <select id="status-filter">
     <option value="">All</option>
@@ -96,6 +103,7 @@
          data-hearing="{{ b.hearing_date or '' }}"
          data-status="{{ b.status }}"
          data-market="{{ mkt }}"
+         data-priority="{{ b.priority or '2' }}"
          data-lede="{{ b.lede|e }}"
          data-body="{{ b.body|e }}"
          style="view-transition-name: card-{{ b.id }}"
@@ -245,7 +253,7 @@
 var GEO = {{ geo_json|safe }};
 
 // ── Filter state ──────────────────────────────────────────────────────────────
-var F = { region:'', county:'', city:'', source:'', date:'', from_date:'', to_date:'', hearings:false, status:'' };
+var F = { region:'', county:'', city:'', source:'', date:'', from_date:'', to_date:'', hearings:false, status:'', priority:'' };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function $(id) { return document.getElementById(id); }
@@ -280,7 +288,8 @@ function filterCards() {
     if (F.region && card.dataset.region !== F.region) show = false;
     if (F.county && card.dataset.county !== F.county) show = false;
     if (F.city   && card.dataset.city   !== F.city)   show = false;
-    if (F.source && card.dataset.source !== F.source) show = false;
+    if (F.source   && card.dataset.source   !== F.source)   show = false;
+    if (F.priority && card.dataset.priority !== F.priority) show = false;
 
     if (show && F.status) {
       var s = card.dataset.status;
@@ -322,8 +331,9 @@ function filterCards() {
 }
 
 // ── Filter chips ──────────────────────────────────────────────────────────────
-var DATE_LABELS = {today:'Today', last_7:'Last 7 days', last_30:'Last 30 days', last_90:'Last 90 days'};
-var STATUS_LABELS = {new:'New', used:'Used', dismissed:'Dismissed', snoozed:'Snoozed'};
+var DATE_LABELS     = {today:'Today', last_7:'Last 7 days', last_30:'Last 30 days', last_90:'Last 90 days'};
+var STATUS_LABELS   = {new:'New', used:'Used', dismissed:'Dismissed', snoozed:'Snoozed'};
+var PRIORITY_LABELS = {'1':'High priority', '2':'Medium priority', '3':'Low priority'};
 
 function formatChipDate(s) {
   var d = new Date(s + 'T00:00:00');
@@ -344,6 +354,7 @@ function updateChips() {
       parts.push({label: DATE_LABELS[F.date], key:'date'});
     }
   }
+  if (F.priority) parts.push({label: PRIORITY_LABELS[F.priority] || F.priority + ' priority', key:'priority'});
   if (F.hearings) parts.push({label:'⚡ Upcoming hearings', key:'hearings'});
 
   var el = document.getElementById('active-chips');
@@ -362,6 +373,7 @@ function clearChip(key) {
   else if (key === 'county') { F.county = ''; F.city = ''; $('filter-county').value = ''; rebuildSelect($('filter-city'), citiesForCounty(''), 'All Cities'); }
   else if (key === 'city')     { F.city = '';     $('filter-city').value = ''; }
   else if (key === 'source')   { F.source = '';   $('source-filter').value = ''; }
+  else if (key === 'priority') { F.priority = ''; $('priority-filter').value = ''; }
   else if (key === 'status')   { F.status = '';   $('status-filter').value = ''; }
   else if (key === 'date')     { F.date = ''; F.from_date = ''; F.to_date = ''; $('date-filter').value = ''; $('from-date').value = ''; $('to-date').value = ''; $('custom-date-inputs').style.display = 'none'; }
   else if (key === 'hearings') { F.hearings = false; $('hearings-toggle').classList.remove('active'); }
@@ -369,10 +381,10 @@ function clearChip(key) {
 }
 
 function clearAll() {
-  F = { region:'', county:'', city:'', source:'', date:'', from_date:'', to_date:'', hearings:false, status:'' };
+  F = { region:'', county:'', city:'', source:'', date:'', from_date:'', to_date:'', hearings:false, status:'', priority:'' };
   $('filter-region').value = ''; $('filter-county').value = ''; $('filter-city').value = '';
   $('date-filter').value = ''; $('from-date').value = ''; $('to-date').value = '';
-  $('source-filter').value = ''; $('status-filter').value = '';
+  $('source-filter').value = ''; $('priority-filter').value = ''; $('status-filter').value = '';
   $('custom-date-inputs').style.display = 'none';
   $('hearings-toggle').classList.remove('active');
   filterCards();
@@ -394,6 +406,7 @@ $('filter-county').addEventListener('change', function() {
 
 $('filter-city').addEventListener('change', function() { F.city = this.value; filterCards(); });
 $('source-filter').addEventListener('change', function() { F.source = this.value; filterCards(); });
+$('priority-filter').addEventListener('change', function() { F.priority = this.value; filterCards(); });
 $('status-filter').addEventListener('change', function() { F.status = this.value; filterCards(); });
 
 $('date-filter').addEventListener('change', function() {
