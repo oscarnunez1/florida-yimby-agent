@@ -108,7 +108,7 @@
          data-lede="{{ b.lede|e }}"
          data-body="{{ b.body|e }}"
          style="view-transition-name: card-{{ b.id }}"
-         >
+         onclick="navigateToCard(event, this)">
 
   <div class="dot-menu">
     <button class="dot-btn" onclick="toggleDotMenu(event, {{ b.id }})" aria-label="Actions">⋯</button>
@@ -152,13 +152,6 @@
     {% if b.lede %}
       <div class="card-lede">{{ b.lede }}</div>
     {% endif %}
-  </div>
-
-  <div class="card-quick-actions">
-    <button onclick="navigateToCard(event, this.closest('.brief-card'))">📖 Read Full Brief</button>
-    <button onclick="dotAction({{ b.id }}, 'use'); event.stopPropagation();">✓ Used</button>
-    <button onclick="dotAction({{ b.id }}, 'snooze'); event.stopPropagation();">⏱ Snooze</button>
-    <button onclick="toggleDismissSub(event, {{ b.id }})">✕ Dismiss</button>
   </div>
 
 </article>
