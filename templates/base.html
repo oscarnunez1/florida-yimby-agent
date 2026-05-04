@@ -51,6 +51,7 @@
       flex-direction: column;
       overflow-y: auto;
       z-index: 100;
+      transition: transform 0.2s ease-in-out;
     }
 
     .sidebar-brand {
@@ -124,7 +125,44 @@
     }
 
     /* ── Main ── */
-    .main { margin-left: var(--sidebar-w); min-height: 100vh; }
+    .main { margin-left: var(--sidebar-w); min-height: 100vh; transition: margin-left 0.2s ease-in-out; }
+
+    /* ── Desktop sidebar collapse ── */
+    body.sidebar-closed .sidebar { transform: translateX(-100%); }
+    body.sidebar-closed .main    { margin-left: 0; }
+
+    .sidebar-collapse-btn {
+      flex-shrink: 0;
+      background: transparent;
+      border: 1px solid var(--border-sidebar);
+      color: var(--text-sidebar);
+      border-radius: 4px;
+      width: 28px; height: 28px;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .sidebar-collapse-btn:hover { color: #fff; border-color: rgba(255,255,255,0.3); }
+
+    .sidebar-reopen-btn {
+      display: none;
+      position: fixed;
+      top: 16px; left: 16px;
+      z-index: 99;
+      background: var(--bg-void);
+      color: var(--text-sidebar);
+      border: 1px solid var(--border-sidebar);
+      border-radius: 6px;
+      width: 36px; height: 36px;
+      font-size: 16px;
+      cursor: pointer;
+      align-items: center; justify-content: center;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .sidebar-reopen-btn:hover { color: #fff; border-color: rgba(255,255,255,0.3); }
+    body.sidebar-closed .sidebar-reopen-btn { display: flex; }
 
     .main-content {
       padding: 36px 40px 60px;
@@ -844,6 +882,10 @@
       .main { margin-left: 0; }
       .main-content { padding: 20px 16px 40px; }
       .card-grid { grid-template-columns: 1fr; }
+
+      /* Desktop collapse controls irrelevant on mobile */
+      .sidebar-collapse-btn { display: none !important; }
+      .sidebar-reopen-btn   { display: none !important; }
     }
 
     @media (min-width: 860px) and (max-width: 1199px) {
@@ -874,13 +916,16 @@
 </header>
 
 <nav class="sidebar" id="sidebar">
-  <div style="padding:24px 20px; border-bottom:1px solid var(--border-sidebar);">
-    <div style="font-family:var(--font-heading); font-size:18px; font-weight:700; color:white; letter-spacing:0.02em;">
-      YIMBY Agent
+  <div style="padding:20px 20px 18px; border-bottom:1px solid var(--border-sidebar); display:flex; align-items:center; justify-content:space-between; gap:12px;">
+    <div>
+      <div style="font-family:var(--font-heading); font-size:18px; font-weight:700; color:white; letter-spacing:0.02em;">
+        YIMBY Agent
+      </div>
+      <div style="font-family:var(--font-mono); font-size:11px; font-weight:400; color:var(--text-sidebar); opacity:0.7; margin-top:4px; letter-spacing:0.05em;">
+        FL
+      </div>
     </div>
-    <div style="font-family:var(--font-mono); font-size:11px; font-weight:400; color:var(--text-sidebar); opacity:0.7; margin-top:4px; letter-spacing:0.05em;">
-      FL
-    </div>
+    <button class="sidebar-collapse-btn" onclick="toggleDesktopSidebar()" aria-label="Collapse sidebar">‹</button>
   </div>
   <div class="sidebar-nav">
     <a href="/inbox" class="nav-link {{ 'active' if active_page == 'inbox' }}">
@@ -902,6 +947,8 @@
   </div>
 </nav>
 
+<button class="sidebar-reopen-btn" onclick="toggleDesktopSidebar()" aria-label="Open sidebar">☰</button>
+
 <main class="main">
   <div class="main-content">
     {% block content %}{% endblock %}
@@ -917,6 +964,18 @@ function closeSidebar() {
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('mob-overlay').classList.remove('visible');
 }
+
+function toggleDesktopSidebar() {
+  var closed = document.body.classList.toggle('sidebar-closed');
+  localStorage.setItem('sidebarState', closed ? 'closed' : 'open');
+}
+
+// Restore desktop sidebar state before first paint to avoid flicker
+(function() {
+  if (localStorage.getItem('sidebarState') === 'closed') {
+    document.body.classList.add('sidebar-closed');
+  }
+})();
 
 /* ── Three-dot menu ── */
 function closeAllMenus() {
