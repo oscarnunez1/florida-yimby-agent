@@ -167,7 +167,6 @@
       border-radius: 10px;
       box-shadow: var(--shadow-card);
       overflow: hidden;
-      cursor: pointer;
       position: relative;
       transition: box-shadow 0.2s, transform 0.2s;
     }
@@ -175,6 +174,52 @@
     .brief-card:hover {
       box-shadow: var(--shadow-card-hover);
       transform: translateY(-2px);
+    }
+
+    /* Priority heat borders */
+    article.brief-card[data-priority="1"] { border-left: 4px solid #ef4444; }
+    article.brief-card[data-priority="2"] { border-left: 4px solid #f59e0b; }
+    article.brief-card[data-priority="3"] { border-left: 4px solid #9ca3af; }
+
+    /* Quick action footer */
+    .card-quick-actions {
+      display: flex;
+      gap: 8px;
+      padding: 10px 16px 14px;
+      border-top: 1px solid var(--border-light);
+      margin-top: auto;
+    }
+
+    .card-quick-actions button {
+      flex: 1;
+      padding: 6px 10px;
+      font-family: var(--font-mono, 'DM Mono', monospace);
+      font-size: 11px;
+      font-weight: 500;
+      border: 1px solid var(--border-medium);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .card-quick-actions button:hover {
+      background: var(--accent-light);
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .card-quick-actions button:first-child:hover {
+      background: #f0fdf4;
+      color: #16a34a;
+      border-color: #16a34a;
+    }
+
+    .card-quick-actions button:last-child:hover {
+      background: #fef2f2;
+      color: #dc2626;
+      border-color: #dc2626;
     }
 
     .card-img {
@@ -870,12 +915,6 @@ function toggleDismissSub(e, id) {
   e.stopPropagation();
   var sub = document.getElementById('dot-sub-' + id);
   sub.hidden = !sub.hidden;
-}
-
-/* ── Card navigation ── */
-function navigateToCard(e, card) {
-  if (e.target.closest('.dot-menu')) return;
-  window.location.href = '/briefs/' + card.dataset.id;
 }
 
 /* ── Card actions ── */
