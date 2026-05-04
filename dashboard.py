@@ -502,6 +502,24 @@ def brief_detail(brief_id: int):
     return render_template("brief_detail.html", b=b, active_page="archive")
 
 
+@app.route("/briefs/<int:brief_id>/fragment")
+def brief_fragment(brief_id: int):
+    with get_conn() as conn:
+        row = conn.execute("""
+            SELECT b.*, rc.source, rc.url AS source_url, rc.og_image_url, rc.published_at, rc.captured_at,
+                   ei.project_name, ei.address, ei.market,
+                   ei.developer, ei.architect, ei.units, ei.height,
+                   ei.extracted_data_json
+            FROM briefs b
+            JOIN extracted_items ei ON b.extracted_item_id = ei.id
+            JOIN raw_captures    rc ON ei.raw_capture_id  = rc.id
+            WHERE b.id = ?
+        """, (brief_id,)).fetchone()
+    if not row:
+        return "Brief not found", 404
+    return render_template("brief_fragment.html", brief=row)
+
+
 # ── Card actions (JSON API) ───────────────────────────────────────────────────
 
 @app.route("/briefs/<int:brief_id>/use", methods=["POST"])

@@ -1,0 +1,72 @@
+{% set mkt       = brief.market or 'OTHER' %}
+{% set mkt_color = market_color(mkt) %}
+{% set badge     = hearing_badge(brief.hearing_date, brief.hearing_board) %}
+{% set sclass    = brief.status if brief.status in ('new','used','dismissed','snoozed') else 'new' %}
+{% set slabel    = {'new':'New','used':'Used','dismissed':'Dismissed','snoozed':'Snoozed','pending':'New'}.get(brief.status,'New') %}
+{% set pub_date  = brief.published_at[:10] if brief.published_at else (brief.captured_at[:10] if brief.captured_at else '') %}
+
+<!-- Meta row -->
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-bottom:16px">
+  <span class="market-tag" style="--mc:{{ mkt_color }}">{{ market_display(mkt) }}</span>
+  {% if badge %}
+    <span class="hearing-tag {{ 'past' if 'heard' in badge }}">{{ badge }}</span>
+  {% endif %}
+  <span class="status-badge badge-{{ sclass }}">{{ slabel }}</span>
+  <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);margin-left:auto">
+    {{ brief.source }}{% if pub_date %} · {{ pub_date }}{% endif %}
+  </span>
+</div>
+
+<h2 class="detail-headline" style="margin-bottom:20px">{{ brief.headline }}</h2>
+
+{% if brief.lede %}
+<div class="detail-section" style="border-top:none;padding-top:0;margin-top:0">
+  <div class="detail-section-label">Lede</div>
+  <div class="detail-section-text"><strong>{{ brief.lede }}</strong></div>
+</div>
+{% endif %}
+
+{% if brief.body %}
+<div class="detail-section">
+  <div class="detail-section-label">Body</div>
+  <div class="detail-section-text">{{ brief.body }}</div>
+</div>
+{% endif %}
+
+{% if brief.fact_sheet_json %}
+<div class="detail-section">
+  <div class="detail-section-label">Fact Sheet</div>
+  <div class="detail-section-text" style="font-family:'DM Mono',monospace;font-size:13px;white-space:pre-wrap">{{ brief.fact_sheet_json }}</div>
+</div>
+{% endif %}
+
+{% if brief.confirmed_vs_pending %}
+<div class="detail-section">
+  <div class="detail-section-label">Confirmed vs Pending</div>
+  <div class="detail-section-text">{{ brief.confirmed_vs_pending }}</div>
+</div>
+{% endif %}
+
+{% if brief.open_questions %}
+<div class="detail-section">
+  <div class="detail-section-label">Open Questions</div>
+  <div class="detail-section-text">{{ brief.open_questions }}</div>
+</div>
+{% endif %}
+
+{% if brief.sources %}
+<div class="detail-section">
+  <div class="detail-section-label">Sources</div>
+  <div class="expand-sources">
+    {% for url in brief.sources.split('\n') %}{% set url = url.strip() %}{% if url %}
+      <a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a>
+    {% endif %}{% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="detail-section" style="display:flex;gap:10px;flex-wrap:wrap">
+  <button class="btn btn-ghost" onclick="dotAction({{ brief.id }}, 'use'); closeBriefModal();">✓ Mark as used</button>
+  <button class="btn btn-ghost" onclick="dotAction({{ brief.id }}, 'snooze'); closeBriefModal();">⏱ Snooze 24h</button>
+  <a href="/briefs/{{ brief.id }}" class="btn btn-ghost" target="_blank">Open full page ↗</a>
+</div>

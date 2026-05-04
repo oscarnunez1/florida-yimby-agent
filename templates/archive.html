@@ -91,7 +91,6 @@
 {% set slabel = {'new':'New','used':'Used','dismissed':'Dismissed','snoozed':'Snoozed','pending':'New'}.get(b.status,'New') %}
 {% set mkt       = b.market or 'OTHER' %}
 {% set mkt_color = market_color(mkt) %}
-{% set badge     = hearing_badge(b.hearing_date, b.hearing_board) %}
 
 <article class="brief-card"
          data-id="{{ b.id }}"
@@ -138,15 +137,13 @@
     <div class="card-meta-line">{{ b.created_at[:10] if b.created_at else '—' }} · {{ b.source }}</div>
     <div class="card-tags">
       <span class="market-tag" style="--mc:{{ mkt_color }}">{{ market_display(mkt) }}</span>
-      {% if badge %}
-        <span class="hearing-tag {{ 'past' if 'heard' in badge }}">{{ badge }}</span>
-      {% endif %}
       <span class="status-badge badge-{{ sclass }}">{{ slabel }}</span>
     </div>
     <div class="card-headline">{{ b.headline }}</div>
     {% if b.lede %}
       <div class="card-lede">{{ b.lede }}</div>
     {% endif %}
+    <button class="card-open-btn" onclick="openBriefModal({{ b.id }}); event.stopPropagation();">Open →</button>
   </div>
 
 </article>
