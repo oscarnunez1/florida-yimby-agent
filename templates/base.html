@@ -1159,9 +1159,12 @@ function closeBriefModal() {
   document.body.style.overflow = '';
 }
 
-document.getElementById('brief-modal-overlay').addEventListener('click', function(e) {
-  if (e.target === this) closeBriefModal();
-});
+const _modalOverlay = document.getElementById('brief-modal-overlay');
+if (_modalOverlay) {
+  _modalOverlay.addEventListener('click', function(e) {
+    if (e.target === this) closeBriefModal();
+  });
+}
 
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') closeBriefModal();
