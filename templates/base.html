@@ -1189,12 +1189,12 @@ function closeBriefModal() {
   document.body.style.overflow = '';
 }
 
-const _modalOverlay = document.getElementById('brief-modal-overlay');
-if (_modalOverlay) {
-  _modalOverlay.addEventListener('click', function(e) {
-    if (e.target === this) closeBriefModal();
-  });
-}
+document.addEventListener('click', function(e) {
+  var overlay = document.getElementById('brief-modal-overlay');
+  if (overlay && overlay.classList.contains('active') && e.target.id === 'brief-modal-overlay') {
+    closeBriefModal();
+  }
+});
 
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') closeBriefModal();
