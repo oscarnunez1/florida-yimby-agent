@@ -71,6 +71,10 @@
     <option value="snoozed">Snoozed</option>
   </select>
 
+  <input type="text" id="live-search" class="search-input"
+         placeholder="Search projects, developers, keywords…"
+         oninput="filterCards()">
+
   <button type="button" id="hearings-toggle" class="hearings-btn">⚡ Upcoming hearings</button>
 </div>
 
@@ -184,6 +188,24 @@
 }
 .filter-bar-geo select:focus,
 .filter-bar-geo input[type="date"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(232,82,42,0.1);
+}
+.search-input {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  border: 1px solid var(--border-medium);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  height: 34px;
+  padding: 6px 10px;
+  width: 260px;
+  box-sizing: border-box;
+}
+.search-input::placeholder { color: var(--text-muted); }
+.search-input:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(232,82,42,0.1);
@@ -314,6 +336,17 @@ function filterCards() {
         var hd = new Date(h.slice(0,10) + 'T00:00:00');
         var diff = (hd - today) / 86400000;
         if (diff < 0 || diff > 14) show = false;
+      }
+    }
+
+    if (show) {
+      var q = (document.getElementById('live-search') || {}).value;
+      if (q && q.trim()) {
+        var needle = q.trim().toLowerCase();
+        var haystack = (card.dataset.lede || '') + ' ' +
+                       (card.dataset.body || '') + ' ' +
+                       card.textContent;
+        if (haystack.toLowerCase().indexOf(needle) === -1) show = false;
       }
     }
 
