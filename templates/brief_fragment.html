@@ -65,21 +65,19 @@
 </div>
 {% endif %}
 
-<div class="detail-section" style="display:flex;gap:10px;flex-wrap:wrap">
+<div class="detail-section" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
   <button class="btn btn-ghost" onclick="dotAction({{ brief.id }}, 'use'); closeBriefModal();">✓ Mark as used</button>
   <button class="btn btn-ghost" onclick="dotAction({{ brief.id }}, 'snooze'); closeBriefModal();">⏱ Snooze 24h</button>
   <a href="/briefs/{{ brief.id }}" class="btn btn-ghost" target="_blank">Open full page ↗</a>
-</div>
-
-<div class="draft-article-section" style="margin-top:24px;border-top:1px solid var(--border-light);padding-top:20px;">
   <button id="draft-article-btn"
           onclick="draftArticle({{ brief.id }})"
-          style="background:var(--accent);color:white;border:none;border-radius:6px;padding:10px 20px;font-family:var(--font-mono);font-size:12px;font-weight:600;cursor:pointer;letter-spacing:0.05em;transition:all 0.15s;">
+          style="background:var(--accent);color:white;border:none;border-radius:6px;padding:8px 16px;font-family:var(--font-mono);font-size:12px;font-weight:600;cursor:pointer;letter-spacing:0.05em;">
     ✦ Draft Article
   </button>
-  <span id="draft-article-status" style="margin-left:12px;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);"></span>
+  <span id="draft-article-status" style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);"></span>
+</div>
 
-  <div id="draft-article-output" style="display:none;margin-top:20px;">
+<div id="draft-article-output" style="display:none;margin-top:16px;border-top:1px solid var(--border-light);padding-top:16px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.1em;">Draft Article</span>
       <button onclick="copyArticle()" style="font-family:var(--font-mono);font-size:11px;color:var(--accent);background:transparent;border:1px solid var(--accent);border-radius:4px;padding:4px 10px;cursor:pointer;">Copy HTML</button>
@@ -94,6 +92,5 @@
             style="margin-top:8px;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);background:transparent;border:none;cursor:pointer;text-decoration:underline;">
       Show raw HTML
     </button>
-  </div>
 </div>
 
