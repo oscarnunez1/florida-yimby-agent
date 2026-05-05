@@ -4,20 +4,21 @@
 {% block content %}
 <div class="page-heading">
   <div>
-    <div style="display:flex; align-items:center; gap:12px;">
-      <h1 style="margin:0;">Briefs</h1>
-      <button id="run-daily-btn" class="refresh-btn"
-              aria-label="Run daily pipeline"
-              onclick="triggerDailyRun()"
-              style="width:auto; border-radius:6px; padding:0 12px; font-size:12px; font-family:var(--font-mono); font-weight:600; letter-spacing:0.04em;">
-        ▶ Run Daily
-      </button>
-    </div>
+    <h1 style="margin:0;">Briefs</h1>
     <p class="subtitle" id="brief-count">{{ briefs|length }} brief{{ 's' if briefs|length != 1 }}</p>
   </div>
-  <input type="text" id="live-search" class="search-input"
-         placeholder="Search projects, developers, keywords…"
-         oninput="filterCards()">
+  <div style="display:flex; gap:8px; align-items:center; height:38px;">
+    <button id="run-daily-btn"
+            aria-label="Run daily pipeline"
+            onclick="triggerDailyRun()"
+            style="padding:0 16px; height:100%; border:1px solid var(--border-medium); border-radius:20px; background:var(--bg-main); color:var(--text-primary); font-family:var(--font-body); font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; box-sizing:border-box; transition:background 0.2s; white-space:nowrap;">
+      ▶ Run Daily
+    </button>
+    <input type="text" id="live-search"
+           placeholder="Search projects, developers, keywords…"
+           oninput="filterCards()"
+           style="padding:0 16px; height:100%; border:1px solid var(--border-medium); border-radius:20px; font-family:var(--font-body); font-size:14px; background:var(--bg-main); color:var(--text-primary); width:260px; box-sizing:border-box; outline:none;">
+  </div>
 </div>
 
 <!-- Filter bar (no form — all filtering is client-side) -->
@@ -202,24 +203,6 @@
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(232,82,42,0.1);
 }
-.search-input {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 13px;
-  border: 1px solid var(--border-medium);
-  border-radius: 6px;
-  background: var(--bg-card);
-  color: var(--text-primary);
-  height: 34px;
-  padding: 6px 10px;
-  width: 260px;
-  box-sizing: border-box;
-}
-.search-input::placeholder { color: var(--text-muted); }
-.search-input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(232,82,42,0.1);
-}
 .hearings-btn {
   font-family: 'DM Mono', monospace;
   font-size: 11px;
@@ -266,17 +249,6 @@
   border-color: var(--border-light);
 }
 .filter-chip-clear:hover { background: var(--border-light); }
-.refresh-btn {
-  width: 32px; height: 32px; border-radius: 50%;
-  border: 1px solid var(--border-medium);
-  background: white; color: var(--text-muted);
-  cursor: pointer; display: flex; align-items: center;
-  justify-content: center; font-size: 16px;
-  transition: all 0.15s;
-}
-.refresh-btn:hover { background: var(--accent-light); color: var(--accent); border-color: var(--accent); }
-@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-.refresh-btn.spinning { animation: spin 0.5s cubic-bezier(0.4,0,0.2,1); }
 </style>
 <script>
 var GEO = {{ geo_json|safe }};
