@@ -34,9 +34,9 @@ rss:
     tags: [florida, development, commercial, real-estate, business, statewide]
     # Custom CMS; full-text RSS at non-standard path /rss/headlines/all/
 
-  - name: St Pete Granicus
-    url: https://stpete.granicus.com/ViewPublisherRSS.php?view_id=14&mode=podcast
-    tags: [florida, municipal, st-pete, pinellas]
+  # St Pete Granicus RSS removed — publishes video recording links, not agenda items.
+  # Zero dev=True classifications across 100 items. Accessing St Pete development
+  # board agendas requires scraping stpete.org/boards directly (deferred).
 
   # ── Sources without RSS — not added ──────────────────────────────────────
   # One for the Money (oftmw.com/florida): Wix site — no RSS, no WP REST API.
