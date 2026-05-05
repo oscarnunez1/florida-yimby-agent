@@ -3,12 +3,17 @@
 
 {% block content %}
 <div class="page-heading">
-  <div style="display:flex; align-items:center; gap:12px;">
-    <h1 style="margin:0;">Briefs</h1>
-    <button class="refresh-btn" aria-label="Refresh"
-            onclick="this.classList.add('spinning'); setTimeout(() => location.reload(), 500);">↻</button>
+  <div>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <h1 style="margin:0;">Briefs</h1>
+      <button class="refresh-btn" aria-label="Refresh"
+              onclick="this.classList.add('spinning'); setTimeout(() => location.reload(), 500);">↻</button>
+    </div>
+    <p class="subtitle" id="brief-count">{{ briefs|length }} brief{{ 's' if briefs|length != 1 }}</p>
   </div>
-  <p class="subtitle" id="brief-count">{{ briefs|length }} brief{{ 's' if briefs|length != 1 }}</p>
+  <input type="text" id="live-search" class="search-input"
+         placeholder="Search projects, developers, keywords…"
+         oninput="filterCards()">
 </div>
 
 <!-- Filter bar (no form — all filtering is client-side) -->
@@ -70,10 +75,6 @@
     <option value="snoozed"   {{ 'selected' if status == 'snoozed' }}>Snoozed</option>
     <option value="dismissed" {{ 'selected' if status == 'dismissed' }}>Dismissed</option>
   </select>
-
-  <input type="text" id="live-search" class="search-input"
-         placeholder="Search projects, developers, keywords…"
-         oninput="filterCards()">
 
   <button type="button" id="hearings-toggle" class="hearings-btn">⚡ Upcoming hearings</button>
 </div>
