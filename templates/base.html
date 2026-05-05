@@ -281,9 +281,19 @@
     }
     #brief-modal-close:hover { color: var(--accent); border-color: var(--accent); }
     #brief-modal-body { padding: 20px 28px 28px; }
-    #draft-article-btn { transition: all 0.15s; }
-    #draft-article-btn:disabled { opacity: 0.7; cursor: not-allowed; }
+    #draft-article-btn { transition: background 0.15s, transform 0.15s, opacity 0.15s; }
+    #draft-article-btn:disabled { opacity: 0.65; cursor: not-allowed; background: #888 !important; transform: none !important; }
     #draft-article-btn:hover:not(:disabled) { background: var(--accent-dark, #c44a20); transform: translateY(-1px); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      display: inline-block; width: 11px; height: 11px;
+      border: 2px solid rgba(255,255,255,0.35);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle; margin-right: 6px;
+    }
+    #draft-article-output { transition: opacity 0.3s ease; }
 
     .card-img {
       width: 100%;
@@ -1180,9 +1190,11 @@ async function draftArticle(briefId) {
   const preview = document.getElementById('draft-article-preview');
   const raw    = document.getElementById('draft-article-raw');
 
+  const originalHTML = btn.innerHTML;
   btn.disabled = true;
-  btn.textContent = '⏳ Drafting...';
+  btn.innerHTML = '<span class="spinner"></span>Drafting...';
   status.textContent = 'Claude Opus is writing your article...';
+  output.style.opacity = '0';
   output.style.display = 'none';
 
   try {
@@ -1196,15 +1208,16 @@ async function draftArticle(briefId) {
       preview.innerHTML = data.html;
       raw.value = data.html;
       output.style.display = 'block';
-      btn.textContent = '✦ Re-draft Article';
+      requestAnimationFrame(() => { output.style.opacity = '1'; });
+      btn.innerHTML = '✦ Re-draft Article';
       status.textContent = 'Draft complete';
     } else {
       status.textContent = 'Error: ' + data.error;
-      btn.textContent = '✦ Draft Article';
+      btn.innerHTML = originalHTML;
     }
   } catch (err) {
     status.textContent = 'Request failed';
-    btn.textContent = '✦ Draft Article';
+    btn.innerHTML = originalHTML;
   }
   btn.disabled = false;
 }

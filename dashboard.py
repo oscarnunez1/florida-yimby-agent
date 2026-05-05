@@ -500,7 +500,7 @@ def brief_detail(brief_id: int):
         ).fetchone()
     if not b:
         abort(404)
-    return render_template("brief_detail.html", b=b, active_page="archive")
+    return render_template("brief_detail.html", b=b, active_page="inbox")
 
 
 @app.route("/briefs/<int:brief_id>/fragment")
