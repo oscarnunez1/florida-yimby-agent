@@ -1266,6 +1266,69 @@ function toggleRawHTML() {
     btn.textContent = 'Show raw HTML';
   }
 }
+
+async function triggerDailyRun() {
+  const btn = document.getElementById('run-daily-btn');
+  if (!btn || btn.disabled) return;
+
+  btn.disabled = true;
+  btn.innerHTML = '⏳ Running...';
+  btn.style.opacity = '0.7';
+  btn.style.cursor = 'not-allowed';
+
+  let logBox = document.getElementById('run-daily-log');
+  if (!logBox) {
+    logBox = document.createElement('div');
+    logBox.id = 'run-daily-log';
+    logBox.style.cssText = 'position:fixed;bottom:20px;right:20px;width:420px;max-height:300px;overflow-y:auto;background:#0a0e1a;color:#e2e8f0;font-family:var(--font-mono);font-size:11px;padding:16px;border-radius:8px;z-index:2000;border:1px solid var(--border-medium);white-space:pre-wrap;';
+    document.body.appendChild(logBox);
+  }
+  logBox.textContent = '';
+  logBox.style.display = 'block';
+
+  try {
+    const resp = await fetch('/run-daily', { method: 'POST' });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      logBox.textContent += decoder.decode(value);
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+    if (logBox.textContent.includes('exit code 0')) {
+      localStorage.setItem('lastPipelineRunDate', new Date().toDateString());
+      btn.innerHTML = '✓ Ran Today';
+      btn.title = 'Pipeline already ran today';
+    } else {
+      btn.disabled = false;
+      btn.innerHTML = '▶ Run Daily';
+      btn.style.opacity = '1';
+      btn.style.cursor = 'pointer';
+    }
+    setTimeout(() => { logBox.style.display = 'none'; }, 10000);
+  } catch (err) {
+    logBox.textContent += '\nError: ' + err.message;
+    btn.disabled = false;
+    btn.innerHTML = '▶ Run Daily';
+    btn.style.opacity = '1';
+    btn.style.cursor = 'pointer';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  var runBtn = document.getElementById('run-daily-btn');
+  if (runBtn) {
+    var lastRunDate = localStorage.getItem('lastPipelineRunDate');
+    if (lastRunDate === new Date().toDateString()) {
+      runBtn.disabled = true;
+      runBtn.style.opacity = '0.5';
+      runBtn.style.cursor = 'not-allowed';
+      runBtn.innerHTML = '✓ Ran Today';
+      runBtn.title = 'Pipeline already ran today';
+    }
+  }
+});
 </script>
 
 <!-- Brief detail modal -->

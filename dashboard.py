@@ -9,6 +9,7 @@ Routes:
   GET  /coverage              — Coverage index with search
   GET  /briefs/<id>           — Single-brief detail page
   GET  /logs                  — Pipeline run history + latest log file
+  POST /run-daily               — Execute run_daily.py and stream output
   POST /briefs/<id>/draft-article — Generate draft article via Claude Opus
   POST /briefs/<id>/use       — Mark brief as used
   POST /briefs/<id>/dismiss   — Dismiss brief with reason
@@ -19,6 +20,8 @@ Routes:
 import json
 import math
 import os
+import subprocess
+import sys
 import yaml
 from collections import Counter
 from datetime import datetime, date, timedelta, timezone
@@ -27,7 +30,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlencode
 
-from flask import Flask, render_template, request, jsonify, abort, redirect, url_for, g
+from flask import Flask, render_template, request, jsonify, abort, redirect, url_for, g, Response, stream_with_context
 
 from db import get_conn, init_db
 from utils import CITY_TO_COUNTY, COUNTY_TO_REGION, get_cities_by_county, get_counties_by_region
@@ -641,6 +644,26 @@ def brief_snooze(brief_id: int):
     if not rows:
         return jsonify(ok=False, error="Brief not found"), 404
     return jsonify(ok=True)
+
+
+# ── Run daily ────────────────────────────────────────────────────────────────
+
+@app.route("/run-daily", methods=["POST"])
+def run_daily():
+    """Execute run_daily.py and stream stdout/stderr back to the browser."""
+    def generate():
+        process = subprocess.Popen(
+            [sys.executable, "run_daily.py"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        for line in process.stdout:
+            yield line
+        process.wait()
+        yield f"\n[exit code {process.returncode}]\n"
+    return Response(stream_with_context(generate()), mimetype="text/plain")
 
 
 # ── Logs ─────────────────────────────────────────────────────────────────────
