@@ -47,8 +47,8 @@
   <select id="date-filter">
     <option value="">All Time</option>
     <option value="today">Today</option>
-    <option value="last_7" selected>Last 7 days</option>
-    <option value="last_30">Last 30 days</option>
+    <option value="last_7">Last 7 days</option>
+    <option value="last_30" selected>Last 30 days</option>
     <option value="last_90">Last 90 days</option>
     <option value="custom">Custom range...</option>
   </select>
@@ -254,7 +254,7 @@
 var GEO = {{ geo_json|safe }};
 
 // ── Filter state ──────────────────────────────────────────────────────────────
-var F = { region:'', county:'', city:'', source:'', date:'last_7', from_date:'', to_date:'', hearings:false, priority:'1' };
+var F = { region:'', county:'', city:'', source:'', date:'last_30', from_date:'', to_date:'', hearings:false, priority:'' };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function $(id) { return document.getElementById(id); }
@@ -449,7 +449,8 @@ $('status-filter').addEventListener('change', function() {
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-$('priority-filter').value = '1';
+$('priority-filter').value = '';
+$('date-filter').value = 'last_30';
 filterCards();
 </script>
 {% endblock %}
