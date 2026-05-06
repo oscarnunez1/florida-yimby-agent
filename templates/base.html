@@ -176,7 +176,7 @@
     .page-heading {
       display: flex;
       justify-content: space-between;
-      align-items: flex-start;
+      align-items: center;
       flex-wrap: wrap;
       gap: 12px;
       margin-bottom: 28px;
@@ -308,6 +308,8 @@
     #draft-article-btn { transition: background 0.15s, transform 0.15s, opacity 0.15s; }
     #draft-article-btn:disabled { opacity: 0.65; cursor: not-allowed; background: #888 !important; transform: none !important; }
     #draft-article-btn:hover:not(:disabled) { background: var(--accent-dark, #c44a20); transform: translateY(-1px); }
+    #run-daily-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    #run-daily-btn:hover:not(:disabled) { background: var(--accent-light); }
     @keyframes spin { to { transform: rotate(360deg); } }
     .spinner {
       display: inline-block; width: 11px; height: 11px;
