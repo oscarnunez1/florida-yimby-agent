@@ -650,20 +650,35 @@ def brief_snooze(brief_id: int):
 
 @app.route("/run-daily", methods=["POST"])
 def run_daily():
-    """Execute run_daily.py and stream stdout/stderr back to the browser."""
+    """Execute run_daily.py and stream output back to browser line by line"""
     def generate():
         process = subprocess.Popen(
-            [sys.executable, "run_daily.py"],
+            [sys.executable, "-u", "run_daily.py"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            bufsize=1,
+            bufsize=0,
+            cwd=str(Path(__file__).parent)
         )
-        for line in process.stdout:
-            yield line
-        process.wait()
-        yield f"\n[exit code {process.returncode}]\n"
-    return Response(stream_with_context(generate()), mimetype="text/plain")
+        try:
+            while True:
+                line = process.stdout.readline()
+                if not line and process.poll() is not None:
+                    break
+                if line:
+                    yield line
+        finally:
+            process.wait()
+            yield f"\n[exit code {process.returncode}]\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/plain",
+        headers={
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache",
+        }
+    )
 
 
 # ── Logs ─────────────────────────────────────────────────────────────────────
