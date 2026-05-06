@@ -34,6 +34,10 @@ rss:
     tags: [florida, development, commercial, real-estate, business, statewide]
     # Custom CMS; full-text RSS at non-standard path /rss/headlines/all/
 
+  - name: Coastal Construction
+    url: https://coastalconstruction.com/feed/
+    tags: [florida, construction, contractor, south-florida, miami]
+
   # St Pete Granicus RSS removed — publishes video recording links, not agenda items.
   # Zero dev=True classifications across 100 items. Accessing St Pete development
   # board agendas requires scraping stpete.org/boards directly (deferred).
