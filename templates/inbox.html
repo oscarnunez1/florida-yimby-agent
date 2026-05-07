@@ -122,16 +122,16 @@
   <div class="dot-menu">
     <button class="dot-btn" onclick="toggleDotMenu(event, {{ b.id }})" aria-label="Actions">⋯</button>
     <div class="dot-dropdown" id="dot-drop-{{ b.id }}" hidden>
-      <button class="dot-item" onclick="dotAction({{ b.id }}, 'use')">Mark as used</button>
-      <button class="dot-item" onclick="dotAction({{ b.id }}, 'snooze')">Snooze 24h</button>
-      <button class="dot-item" onclick="toggleDismissSub(event, {{ b.id }})">Dismiss ›</button>
+      <button class="dot-item" onclick="dotAction({{ b.id }}, 'use'); event.stopPropagation();">Mark as used</button>
+      <button class="dot-item" onclick="dotAction({{ b.id }}, 'snooze'); event.stopPropagation();">Snooze 24h</button>
+      <button class="dot-item" onclick="toggleDismissSub(event, {{ b.id }}); event.stopPropagation();">Dismiss ›</button>
       <div class="dot-sub-items" id="dot-sub-{{ b.id }}" hidden>
-        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'not_relevant')">Not relevant</button>
-        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'already_covered')">Already covered</button>
-        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'wrong_market')">Wrong market</button>
-        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'low_priority')">Low priority</button>
-        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'duplicate')">Duplicate</button>
-        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'other')">Other</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'not_relevant'); event.stopPropagation();">Not relevant</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'already_covered'); event.stopPropagation();">Already covered</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'wrong_market'); event.stopPropagation();">Wrong market</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'low_priority'); event.stopPropagation();">Low priority</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'duplicate'); event.stopPropagation();">Duplicate</button>
+        <button class="dot-subitem" onclick="dotDismiss({{ b.id }}, 'other'); event.stopPropagation();">Other</button>
       </div>
     </div>
   </div>
