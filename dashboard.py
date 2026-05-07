@@ -609,6 +609,38 @@ Source URL: {row['source_url']}
 
 # ── Card actions (JSON API) ───────────────────────────────────────────────────
 
+@app.route("/briefs/bulk-action", methods=["POST"])
+def briefs_bulk_action():
+    data = request.get_json()
+    action = data.get('action')
+    ids = data.get('ids', [])
+
+    if not ids or action not in ('use', 'snooze', 'dismiss'):
+        return jsonify(ok=False, error="Invalid request"), 400
+
+    status_map = {'use': 'used', 'snooze': 'snoozed', 'dismiss': 'dismissed'}
+    new_status = status_map[action]
+
+    snoozed_until = None
+    if action == 'snooze':
+        snoozed_until = (datetime.now(timezone.utc) + timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
+
+    with get_conn() as conn:
+        placeholders = ','.join('?' * len(ids))
+        if action == 'snooze':
+            conn.execute(
+                f"UPDATE briefs SET status=?, snoozed_until=? WHERE id IN ({placeholders})",
+                [new_status, snoozed_until] + ids
+            )
+        else:
+            conn.execute(
+                f"UPDATE briefs SET status=? WHERE id IN ({placeholders})",
+                [new_status] + ids
+            )
+
+    return jsonify(ok=True, updated=len(ids))
+
+
 @app.route("/briefs/<int:brief_id>/use", methods=["POST"])
 def brief_use(brief_id: int):
     with get_conn() as conn:

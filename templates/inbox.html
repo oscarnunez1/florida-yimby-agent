@@ -8,6 +8,11 @@
     <p class="subtitle" id="brief-count">{{ briefs|length }} brief{{ 's' if briefs|length != 1 }}</p>
   </div>
   <div style="display:flex; gap:12px; align-items:center; height:38px;">
+    <button id="select-mode-btn"
+            onclick="toggleSelectMode()"
+            style="font-family:var(--font-mono);font-size:11px;padding:6px 12px;border:1px solid var(--border-medium);border-radius:6px;background:transparent;color:var(--text-muted);cursor:pointer;transition:all 0.15s;">
+      ☐ Select
+    </button>
     <button id="run-daily-btn"
             aria-label="Run daily pipeline"
             onclick="triggerDailyRun()"
@@ -117,7 +122,15 @@
          data-lede="{{ b.lede|e }}"
          data-body="{{ b.body|e }}"
          style="view-transition-name: card-{{ b.id }}"
-         onclick="openBriefModal({{ b.id }})">
+         onclick="selectModeActive ? toggleCardSelect({{ b.id }}, this) : openBriefModal({{ b.id }})">
+
+  <div class="card-checkbox">
+    <input type="checkbox"
+           class="brief-checkbox"
+           data-id="{{ b.id }}"
+           onclick="event.stopPropagation(); updateBulkBar();"
+           style="width:18px;height:18px;cursor:pointer;accent-color:var(--accent);">
+  </div>
 
   <div class="dot-menu">
     <button class="dot-btn" onclick="toggleDotMenu(event, {{ b.id }})" aria-label="Actions">⋯</button>

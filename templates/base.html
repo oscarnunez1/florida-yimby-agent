@@ -222,6 +222,15 @@
       transform: translateY(-2px);
     }
 
+    /* Card checkbox (bulk select) */
+    .card-checkbox {
+      display: none;
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 10;
+    }
+
     /* Priority heat borders */
     article.brief-card[data-priority="1"] { border-left: 4px solid #ef4444; }
     article.brief-card[data-priority="2"] { border-left: 4px solid #f59e0b; }
@@ -1040,7 +1049,7 @@
   <div class="sidebar-nav">
     <a href="/inbox" class="nav-link {{ 'active' if active_page == 'inbox' }}">
       <span class="nav-icon">📰</span>Briefs
-      {% if unread_count %}<span class="nav-badge">{{ unread_count }}</span>{% endif %}
+      {% if unread_count %}<span class="nav-badge" id="unread-badge">{{ unread_count }}</span>{% endif %}
     </a>
     <a href="/archive" class="nav-link {{ 'active' if active_page == 'archive' }}">
       <span class="nav-icon">📂</span>Archive
@@ -1425,6 +1434,98 @@ document.addEventListener('DOMContentLoaded', function() {
   <button id="toast-undo" onclick="undoBriefAction()" style="color:#e8522a;background:none;border:none;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;padding:0;margin-left:auto;white-space:nowrap;">Undo</button>
   <div id="toast-progress" style="position:absolute;bottom:0;left:0;height:3px;background:#e8522a;border-radius:0 0 8px 8px;width:100%;"></div>
 </div>
+
+<!-- Bulk action bar -->
+<div id="bulk-action-bar"
+     style="display:none;position:fixed;bottom:0;left:0;right:0;background:var(--bg-void);border-top:1px solid var(--border-medium);padding:14px 24px;z-index:500;align-items:center;gap:12px;">
+  <span id="bulk-count" style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted);flex:1;">0 selected</span>
+  <button onclick="bulkAction('use')"     style="font-family:var(--font-mono);font-size:11px;padding:8px 16px;background:#16a34a;color:white;border:none;border-radius:6px;cursor:pointer;">✓ Mark Used</button>
+  <button onclick="bulkAction('snooze')"  style="font-family:var(--font-mono);font-size:11px;padding:8px 16px;background:var(--accent);color:white;border:none;border-radius:6px;cursor:pointer;">⏱ Snooze</button>
+  <button onclick="bulkAction('dismiss')" style="font-family:var(--font-mono);font-size:11px;padding:8px 16px;background:#dc2626;color:white;border:none;border-radius:6px;cursor:pointer;">✕ Dismiss</button>
+  <button onclick="selectAll()"           style="font-family:var(--font-mono);font-size:11px;padding:8px 16px;border:1px solid var(--border-medium);background:transparent;color:var(--text-muted);border-radius:6px;cursor:pointer;">Select all visible</button>
+  <button onclick="toggleSelectMode()"   style="font-family:var(--font-mono);font-size:11px;padding:8px 16px;border:1px solid var(--border-medium);background:transparent;color:var(--text-muted);border-radius:6px;cursor:pointer;">✗ Cancel</button>
+</div>
+
+<script>
+let selectModeActive = false;
+
+function toggleSelectMode() {
+  selectModeActive = !selectModeActive;
+  const btn = document.getElementById('select-mode-btn');
+  const checkboxes = document.querySelectorAll('.card-checkbox');
+  const bar = document.getElementById('bulk-action-bar');
+
+  if (selectModeActive) {
+    if (btn) { btn.textContent = '✗ Cancel'; btn.style.borderColor = 'var(--accent)'; btn.style.color = 'var(--accent)'; }
+    checkboxes.forEach(cb => cb.style.display = 'block');
+    if (bar) bar.style.display = 'flex';
+  } else {
+    if (btn) { btn.textContent = '☐ Select'; btn.style.borderColor = ''; btn.style.color = ''; }
+    checkboxes.forEach(cb => cb.style.display = 'none');
+    if (bar) bar.style.display = 'none';
+    document.querySelectorAll('.brief-checkbox').forEach(cb => cb.checked = false);
+    updateBulkBar();
+  }
+}
+
+function toggleCardSelect(id, cardEl) {
+  const cb = cardEl.querySelector('.brief-checkbox');
+  if (cb) { cb.checked = !cb.checked; updateBulkBar(); }
+}
+
+function updateBulkBar() {
+  const checked = document.querySelectorAll('.brief-checkbox:checked');
+  const count = document.getElementById('bulk-count');
+  if (count) count.textContent = `${checked.length} selected`;
+}
+
+function selectAll() {
+  document.querySelectorAll('.brief-card').forEach(card => {
+    if (card.style.display !== 'none') {
+      const cb = card.querySelector('.brief-checkbox');
+      if (cb) cb.checked = true;
+    }
+  });
+  updateBulkBar();
+}
+
+async function bulkAction(action) {
+  const checked = document.querySelectorAll('.brief-checkbox:checked');
+  if (checked.length === 0) return;
+  const ids = Array.from(checked).map(cb => parseInt(cb.dataset.id));
+
+  if (action === 'dismiss' && !confirm(`Dismiss ${ids.length} brief${ids.length !== 1 ? 's' : ''}?`)) return;
+
+  try {
+    const resp = await fetch('/briefs/bulk-action', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ action, ids })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      ids.forEach(id => {
+        const card = document.querySelector(`.brief-card[data-id="${id}"]`);
+        if (card) {
+          card.style.transition = 'opacity 0.2s, transform 0.2s';
+          card.style.opacity = '0';
+          card.style.transform = 'scale(0.95)';
+          setTimeout(() => card.remove(), 200);
+        }
+      });
+      toggleSelectMode();
+      const badge = document.getElementById('unread-badge');
+      if (badge) {
+        const newCount = Math.max(0, (parseInt(badge.textContent) || 0) - ids.length);
+        badge.textContent = newCount;
+        if (newCount === 0) badge.style.display = 'none';
+      }
+    }
+  } catch (err) {
+    console.error('Bulk action failed:', err);
+  }
+}
+</script>
 
 {% block scripts %}{% endblock %}
 </body>
