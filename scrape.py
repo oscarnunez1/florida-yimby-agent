@@ -341,6 +341,121 @@ def scrape_wp_rest_sources(sources: list[dict]) -> tuple[int, int]:
     return total_seen, total_inserted
 
 
+# ── GC press / insights pages ────────────────────────────────────────────────
+
+def scrape_gc_press(sources: list) -> int:
+    """
+    Scrapes General Contractor press/insights pages for Florida project announcements.
+    Only captures articles where the headline or URL contains a Florida keyword.
+    Inserts into raw_captures for standard classify → dedup → enrich → draft pipeline.
+    """
+    new_captures = 0
+
+    for src in sources:
+        name             = src["name"]
+        url              = src["url"]
+        base_url         = src.get("base_url", "")
+        florida_keywords = [kw.lower() for kw in src.get("florida_keywords", [])]
+
+        log.info("Fetching GC press: %s (%s)", name, url)
+
+        try:
+            resp = httpx.get(
+                url,
+                headers={"User-Agent": HTML_USER_AGENT},
+                timeout=REQUEST_TIMEOUT,
+                follow_redirects=True,
+            )
+            resp.raise_for_status()
+        except Exception as exc:
+            log.warning("  %s: fetch failed — %s", name, exc)
+            continue
+
+        tree = HTMLParser(resp.text)
+
+        # Collect unique insight article links. Each URL often appears twice on
+        # Turner's page (once as an image wrapper, once as text). Use a dict to
+        # keep the first non-empty headline for each URL, then fall back to the
+        # URL slug so we never store an empty title.
+        url_to_headline: dict[str, str] = {}
+        for a in tree.css("a[href*='/insights/']"):
+            href = a.attributes.get("href", "")
+            if not href:
+                continue
+            full_url = href if href.startswith("http") else base_url + href
+            headline = a.text(strip=True)
+            if full_url not in url_to_headline or (not url_to_headline[full_url] and headline):
+                url_to_headline[full_url] = headline
+
+        # Fall back to slug-derived title for any entries still missing a headline.
+        article_links: list[tuple[str, str]] = []
+        for full_url, headline in url_to_headline.items():
+            if not headline:
+                slug = full_url.rstrip("/").rsplit("/", 1)[-1]
+                headline = slug.replace("-", " ").title()
+            article_links.append((full_url, headline))
+
+        log.info("  %s: found %d insight links", name, len(article_links))
+
+        for article_url, headline in article_links:
+            combined = (headline + " " + article_url).lower()
+            if not any(kw in combined for kw in florida_keywords):
+                continue
+
+            log.info("  Florida match: %s", headline[:80])
+
+            with get_conn() as conn:
+                exists = conn.execute(
+                    "SELECT 1 FROM raw_captures WHERE url = ?", (article_url,)
+                ).fetchone()
+            if exists:
+                continue
+
+            try:
+                article_resp = httpx.get(
+                    article_url,
+                    headers={"User-Agent": HTML_USER_AGENT},
+                    timeout=REQUEST_TIMEOUT,
+                    follow_redirects=True,
+                )
+                article_resp.raise_for_status()
+            except Exception as exc:
+                log.warning("  Could not fetch article %s — %s", article_url, exc)
+                continue
+
+            article_tree = HTMLParser(article_resp.text)
+
+            # Prefer <title> tag for the headline — more reliable than <a> text
+            # on JS-heavy sites where anchor children may be lazy-loaded.
+            title_el = article_tree.css_first("title")
+            if title_el:
+                page_title = title_el.text(strip=True)
+                # Strip common site-name suffixes (e.g. " | Insights | Turner …")
+                for sep in [" | ", " - ", " – "]:
+                    if sep in page_title:
+                        page_title = page_title.split(sep)[0].strip()
+                        break
+                if page_title:
+                    headline = page_title
+
+            paragraphs = [p.text(strip=True) for p in article_tree.css("p") if p.text(strip=True)]
+            body_text = "\n\n".join(paragraphs[:20])
+
+            with get_conn() as conn:
+                conn.execute(
+                    """INSERT OR IGNORE INTO raw_captures
+                           (source, url, title, content, captured_at, processed)
+                       VALUES (?, ?, ?, ?, datetime('now'), 0)""",
+                    (name, article_url, headline, body_text),
+                )
+
+            new_captures += 1
+            log.info("  Captured: %s", headline[:80])
+
+    log.info("GC press done — %d new captures", new_captures)
+    return new_captures
+
+
 # ── IQM2 government calendar ─────────────────────────────────────────────────
 
 def _extract_agenda_projects(
@@ -979,6 +1094,11 @@ def main() -> None:
         log.info("── WP REST scrape — %d sources ──", len(wp_rest_sources))
         seen, inserted = scrape_wp_rest_sources(wp_rest_sources)
         log.info("WP REST done — %d seen, %d new", seen, inserted)
+
+        gc_sources = sources.get("gc_press", [])
+        if gc_sources:
+            log.info("── GC press scrape — %d sources ──", len(gc_sources))
+            scrape_gc_press(gc_sources)
 
         iqm2_sources = sources.get("iqm2", [])
         log.info("── IQM2 calendar scrape — %d sources ──", len(iqm2_sources))

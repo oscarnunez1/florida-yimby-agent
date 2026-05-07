@@ -119,6 +119,26 @@ legistar:
     board: Board of Architects
     lookahead_days: 60
 
+gc_press:
+  - name: Turner Construction Insights
+    url: https://www.turnerconstruction.com/insights
+    base_url: https://www.turnerconstruction.com
+    florida_keywords:
+      - florida
+      - orlando
+      - miami
+      - tampa
+      - jacksonville
+      - st. petersburg
+      - fort lauderdale
+      - broward
+      - hallandale
+      - boca raton
+      - west palm
+      - estero
+      - naples
+      - sarasota
+
 html_scrape_deferred:
   - name: Melo Group Projects
     url: https://melogroup.com/projects/
