@@ -144,6 +144,21 @@ def market_display(market: str) -> str:
     return market or "FLORIDA"
 
 
+import re as _re
+
+@app.template_filter('format_date')
+def format_date(date_str: str) -> str:
+    try:
+        dt = datetime.strptime(date_str, '%Y-%m-%d')
+        return dt.strftime('%A, %B %-d, %Y')
+    except Exception:
+        return date_str
+
+@app.template_filter('slugify')
+def slugify_filter(text: str) -> str:
+    return _re.sub(r'[^a-z0-9]', '-', (text or '').lower()).strip('-')
+
+
 # ── Filter helpers ────────────────────────────────────────────────────────────
 
 def _date_range_to_bounds(date_range: str) -> tuple[Optional[str], Optional[str]]:
@@ -684,6 +699,47 @@ def run_daily():
 # ── Logs ─────────────────────────────────────────────────────────────────────
 
 LOGS_DIR = Path(__file__).parent / "logs"
+
+
+@app.route("/calendar")
+def calendar():
+    with get_conn() as conn:
+        meetings = conn.execute("""
+            SELECT
+                id,
+                source,
+                board,
+                meeting_date,
+                agenda_url,
+                meeting_url,
+                municipality,
+                first_seen_at
+            FROM meetings
+            WHERE meeting_date >= date('now')
+            ORDER BY meeting_date ASC
+        """).fetchall()
+
+    BOARD_MUNICIPALITY = {
+        'Urban Development Review Board':              'Miami',
+        'Planning, Zoning and Appeals Board':          'Miami',
+        'Historic and Environmental Preservation Board': 'Miami',
+        'Wynwood Design Review Committee':             'Miami (Wynwood)',
+    }
+
+    from collections import defaultdict
+    grouped: dict = defaultdict(list)
+    for m in meetings:
+        row = dict(m)
+        if not row['municipality']:
+            row['municipality'] = BOARD_MUNICIPALITY.get(row['board'], 'Unknown')
+        grouped[row['meeting_date']].append(row)
+
+    grouped_meetings = dict(sorted(grouped.items()))
+
+    return render_template('calendar.html',
+        grouped_meetings=grouped_meetings,
+        active_page='calendar',
+    )
 
 
 @app.route("/logs")

@@ -784,6 +784,77 @@
       border: 1px solid var(--border-light);
     }
 
+    /* ── Calendar timeline ── */
+    .calendar-timeline { max-width: 780px; margin: 0 auto; }
+    .calendar-date-group { margin-bottom: 32px; }
+    .calendar-date-header {
+      font-family: var(--font-heading);
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border-light);
+      margin-bottom: 12px;
+    }
+    .calendar-meeting-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+      background: var(--bg-card);
+      border-radius: 8px;
+      border: 1px solid var(--border-light);
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+    .municipality-badge {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+      background: #f1f5f9;
+      color: var(--text-secondary);
+    }
+    .municipality-miami              { background: #fde68a; color: #92400e; }
+    .municipality-miami--wynwood-    { background: #ddd6fe; color: #5b21b6; }
+    .municipality-coral-gables       { background: #bbf7d0; color: #065f46; }
+    .municipality-tampa              { background: #fed7aa; color: #9a3412; }
+    .municipality-st--petersburg     { background: #bfdbfe; color: #1e40af; }
+    .board-name {
+      font-family: var(--font-body);
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-primary);
+      flex: 1;
+    }
+    .meeting-actions { display: flex; gap: 8px; align-items: center; }
+    .btn-agenda, .btn-source {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      text-decoration: none;
+      border: 1px solid var(--border-medium);
+      color: var(--text-muted);
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .btn-agenda:hover { background: var(--accent-light); color: var(--accent); border-color: var(--accent); }
+    .btn-source:hover { background: var(--border-light); color: var(--text-primary); }
+    .agenda-pending {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      opacity: 0.6;
+      font-style: italic;
+    }
+
     /* ── Health dots ── */
     .health-dot {
       display: inline-block;
@@ -973,6 +1044,9 @@
     </a>
     <a href="/archive" class="nav-link {{ 'active' if active_page == 'archive' }}">
       <span class="nav-icon">📂</span>Archive
+    </a>
+    <a href="/calendar" class="nav-link {{ 'active' if active_page == 'calendar' }}">
+      <span class="nav-icon">📅</span>Calendar
     </a>
     <a href="/sources" class="nav-link {{ 'active' if active_page == 'sources' }}">
       <span class="nav-icon">📡</span>Sources

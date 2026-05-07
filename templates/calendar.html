@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Calendar — FL YIMBY{% endblock %}
+
+{% block content %}
+<div class="page-heading">
+  <div>
+    <h1 style="margin:0;">Upcoming Hearings</h1>
+    <p class="subtitle">{{ grouped_meetings.values() | sum(start=[]) | list | length }} meeting{{ 's' if grouped_meetings.values() | sum(start=[]) | list | length != 1 }}</p>
+  </div>
+</div>
+
+{% if not grouped_meetings %}
+<div class="empty-state">
+  <div class="empty-state-icon">📅</div>
+  <strong>No upcoming meetings found.</strong>
+  <p>Run <code>python scrape.py</code> to pull the latest government calendars.</p>
+</div>
+{% else %}
+<div class="calendar-timeline">
+  {% for date, meetings in grouped_meetings.items() %}
+  <div class="calendar-date-group">
+    <div class="calendar-date-header">{{ date | format_date }}</div>
+    <div class="calendar-meetings">
+      {% for meeting in meetings %}
+      <div class="calendar-meeting-card">
+        <span class="municipality-badge municipality-{{ meeting.municipality | slugify }}">
+          {{ meeting.municipality }}
+        </span>
+        <span class="board-name">{{ meeting.board }}</span>
+        <div class="meeting-actions">
+          {% if meeting.agenda_url %}
+          <a href="{{ meeting.agenda_url }}" target="_blank" rel="noopener" class="btn-agenda">📄 Open Agenda</a>
+          {% else %}
+          <span class="agenda-pending">Agenda pending</span>
+          {% endif %}
+          {% if meeting.meeting_url %}
+          <a href="{{ meeting.meeting_url }}" target="_blank" rel="noopener" class="btn-source">🔗 Source</a>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
