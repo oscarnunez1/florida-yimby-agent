@@ -6,7 +6,7 @@
   <title>{% block title %}Florida YIMBY Intel{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@700;800&family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg-void: #0a0e1a;
@@ -34,7 +34,7 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: 'DM Sans', sans-serif;
+      font-family: 'Inter', 'DM Sans', sans-serif;
       background: var(--bg-surface);
       color: var(--text-primary);
       min-height: 100vh;
@@ -209,16 +209,17 @@
     /* ── Brief card ── */
     .brief-card {
       background: var(--bg-card);
-      border-radius: 10px;
-      box-shadow: var(--shadow-card);
+      border-radius: 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.06);
+      border: 1px solid rgba(0,0,0,0.07);
       overflow: hidden;
       cursor: pointer;
       position: relative;
-      transition: box-shadow 0.2s, transform 0.2s;
+      transition: box-shadow 0.2s ease, transform 0.2s ease;
     }
 
     .brief-card:hover {
-      box-shadow: var(--shadow-card-hover);
+      box-shadow: 0 4px 6px rgba(0,0,0,0.07), 0 12px 24px rgba(0,0,0,0.1);
       transform: translateY(-2px);
     }
 
@@ -232,9 +233,9 @@
     }
 
     /* Priority heat borders */
-    article.brief-card[data-priority="1"] { border-left: 4px solid #ef4444; }
-    article.brief-card[data-priority="2"] { border-left: 4px solid #f59e0b; }
-    article.brief-card[data-priority="3"] { border-left: 4px solid #9ca3af; }
+    article.brief-card[data-priority="1"] { border-left: 5px solid #ef4444; }
+    article.brief-card[data-priority="2"] { border-left: 5px solid #f59e0b; }
+    article.brief-card[data-priority="3"] { border-left: 5px solid #d1d5db; }
 
     /* Open brief button on card */
     .card-open-btn {
@@ -377,14 +378,14 @@
 
     .market-tag {
       font-family: 'DM Mono', monospace;
-      font-size: 10px;
-      font-weight: 500;
+      font-size: 10.5px;
+      font-weight: 600;
       color: #fff;
       background: var(--mc, #475569);
-      padding: 2px 8px;
-      border-radius: 3px;
+      padding: 3px 9px;
+      border-radius: 5px;
       text-transform: uppercase;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.04em;
       border: none;
       cursor: pointer;
       transition: opacity 0.15s;
@@ -411,12 +412,12 @@
 
     .status-badge {
       font-family: 'DM Mono', monospace;
-      font-size: 10px;
-      font-weight: 500;
-      padding: 2px 8px;
-      border-radius: 3px;
+      font-size: 10.5px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 5px;
       text-transform: uppercase;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.04em;
     }
 
     .badge-new      { background: #dbeafe; color: #1e40af; }
@@ -436,8 +437,8 @@
     }
 
     .card-lede {
-      font-size: 14px;
-      color: var(--text-secondary);
+      font-size: 13.5px;
+      color: #4b5563;
       line-height: 1.55;
       display: -webkit-box;
       -webkit-line-clamp: 3;
@@ -607,13 +608,27 @@
     .filter-bar {
       display: flex;
       flex-wrap: wrap;
-      gap: 12px;
+      gap: 8px;
       align-items: flex-end;
-      padding: 16px;
+      padding: 14px 16px 16px;
       background: var(--bg-card);
       border-radius: 8px;
       border: 1px solid var(--border-light);
       margin-bottom: 24px;
+    }
+
+    .filter-bar select {
+      padding: 7px 12px;
+      border-radius: 8px;
+      font-size: 12.5px;
+      border: 1px solid #e5e7eb;
+      background-color: white;
+    }
+
+    .filter-bar select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(234,88,12,0.1);
     }
 
     .filter-group {

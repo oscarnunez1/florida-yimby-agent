@@ -59,8 +59,13 @@
           <span class="health-dot stale"></span>
           <span style="font-size:12px;color:#f59e0b">WAF blocked</span>
         {% elif src.stale %}
-          <span class="health-dot stale"></span>
-          <span style="font-size:12px;color:#ef4444">Stale</span>
+          {% if section_type in ('iqm2', 'legistar') %}
+            <span class="health-dot stale"></span>
+            <span style="font-size:12px;color:#9ca3af">No recent meetings</span>
+          {% else %}
+            <span class="health-dot stale"></span>
+            <span style="font-size:12px;color:#ef4444">Stale</span>
+          {% endif %}
         {% else %}
           <span class="health-dot ok"></span>
           <span style="font-size:12px;color:#10b981">OK</span>
