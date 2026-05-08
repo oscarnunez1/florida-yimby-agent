@@ -69,6 +69,22 @@ granicus:
   #   access (RSS, WP REST, HTML). Would require a authenticated session or
   #   a headless browser with cookie handling to bypass.
 
+energov:
+  - name: Miami-Dade EnerGov Plans
+    url: https://energov.miamidade.gov/EnerGov_Prod/SelfService#/search?m=3&ps=10&pn=1&em=true
+    api_base: https://energov.miamidade.gov/energov_prod/selfservice/api/energov
+    municipality: Miami-Dade
+    plan_types:
+      - "Administrative Site Plan Review"
+      - "Pre-Application"
+      - "Variance"
+      - "Special Exception"
+      - "Rezoning"
+      - "Plat"
+      - "Letter of Intent"
+    days_back: 30
+    tags: [florida, municipal, miami-dade, pre-application, site-plan]
+
 html_scrape: []
 
 wp_rest: []

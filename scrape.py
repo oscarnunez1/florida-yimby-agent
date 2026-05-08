@@ -1243,6 +1243,245 @@ def scrape_granicus_sources(sources: list) -> tuple[int, int]:
     return total_checked, total_inserted
 
 
+# ── EnerGov (Playwright) ──────────────────────────────────────────────────────
+
+def scrape_energov_sources(sources: list) -> int:
+    """
+    Scrapes Miami-Dade EnerGov for recent plan applications via Playwright.
+    Uses page.evaluate() to call the search API from within the browser context,
+    bypassing the 'Host not in allowlist' 403 that plain httpx receives.
+    """
+    try:
+        from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+    except ImportError:
+        log.warning("Playwright not installed — skipping EnerGov sources")
+        return 0
+
+    new_captures = 0
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+        )
+        context = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/147.0.0.0 Safari/537.36"
+            ),
+            viewport={"width": 1280, "height": 800},
+        )
+        page = context.new_page()
+
+        for src in sources:
+            url         = src["url"]
+            api_base    = src["api_base"]
+            source_name = src["name"]
+            municipality = src.get("municipality", "Miami-Dade")
+            plan_types  = src.get("plan_types", [])
+            days_back   = src.get("days_back", 30)
+            apply_from  = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%dT00:00:00")
+
+            log.info("EnerGov: loading %s", url)
+            try:
+                page.goto(url, wait_until="networkidle", timeout=30_000)
+                page.wait_for_timeout(3000)
+            except PWTimeout:
+                log.warning("EnerGov: page load timeout")
+                continue
+            except Exception as exc:
+                log.warning("EnerGov: page load error — %s", exc)
+                continue
+
+            log.info("EnerGov: session established, searching plans")
+
+            search_body = {
+                "Keyword": "",
+                "ExactMatch": True,
+                "SearchModule": 1,
+                "FilterModule": 3,
+                "SearchMainAddress": False,
+                "PlanCriteria": {
+                    "PlanNumber": None,
+                    "PlanTypeId": "none",
+                    "PlanWorkclassId": None,
+                    "PlanStatusId": "none",
+                    "ProjectName": None,
+                    "ApplyDateFrom": apply_from,
+                    "ApplyDateTo": None,
+                    "ExpireDateFrom": None,
+                    "ExpireDateTo": None,
+                    "CompleteDateFrom": None,
+                    "CompleteDateTo": None,
+                    "Address": None,
+                    "Description": None,
+                    "SearchMainAddress": False,
+                    "ContactId": None,
+                    "ParcelNumber": None,
+                    "TypeId": None,
+                    "WorkClassIds": None,
+                    "ExcludeCases": None,
+                    "EnableDescriptionSearch": False,
+                    "PageNumber": 1,
+                    "PageSize": 50,
+                    "SortBy": "ApplyDate",
+                    "SortAscending": False,
+                },
+                "PermitCriteria":            {"PageNumber": 0, "PageSize": 0},
+                "InspectionCriteria":        {"PageNumber": 0, "PageSize": 0},
+                "CodeCaseCriteria":          {"PageNumber": 0, "PageSize": 0},
+                "RequestCriteria":           {"PageNumber": 0, "PageSize": 0},
+                "BusinessLicenseCriteria":   {"PageNumber": 0, "PageSize": 0},
+                "ProfessionalLicenseCriteria": {"PageNumber": 0, "PageSize": 0},
+                "LicenseCriteria":           {"PageNumber": 0, "PageSize": 0},
+                "ProjectCriteria":           {"PageNumber": 0, "PageSize": 0},
+                "PageNumber": 1,
+                "PageSize": 50,
+                "SortBy": "ApplyDate",
+                "SortAscending": False,
+            }
+
+            _ENERGOV_HEADERS = {
+                "Content-Type":         "application/json;charset=UTF-8",
+                "Tyler-Tenant-Culture": "en-US",
+                "Tyler-TenantUrl":      "MiamiDadeProd",
+                "tenantId":             "1",
+                "tenantName":           "MiamiDadeProd",
+                "Accept":               "application/json, text/plain, */*",
+                "Origin":               "https://energov.miamidade.gov",
+                "Referer":              "https://energov.miamidade.gov/EnerGov_Prod/SelfService",
+            }
+
+            try:
+                result = page.evaluate(
+                    """async ({url, body, headers}) => {
+                        const r = await fetch(url, {
+                            method: 'POST',
+                            headers,
+                            body: JSON.stringify(body)
+                        });
+                        return await r.json();
+                    }""",
+                    {
+                        "url":     f"{api_base}/search/search",
+                        "body":    search_body,
+                        "headers": _ENERGOV_HEADERS,
+                    },
+                )
+            except Exception as exc:
+                log.warning("EnerGov: search API call failed — %s", exc)
+                continue
+
+            entity_results = (result or {}).get("Result", {}).get("EntityResults", [])
+            log.info("EnerGov: %d results returned", len(entity_results))
+
+            _READ_HEADERS = {
+                "Tyler-Tenant-Culture": "en-US",
+                "Tyler-TenantUrl":      "MiamiDadeProd",
+                "tenantId":             "1",
+                "tenantName":           "MiamiDadeProd",
+                "Accept":               "application/json",
+            }
+
+            for item in entity_results:
+                case_type     = item.get("CaseType", "")
+                case_workclass = item.get("CaseWorkclass", "")
+
+                if plan_types and not any(
+                    pt.lower() in case_type.lower() or pt.lower() in case_workclass.lower()
+                    for pt in plan_types
+                ):
+                    continue
+
+                case_id      = item.get("CaseId", "")
+                case_number  = item.get("CaseNumber", "")
+                address      = item.get("AddressDisplay", "")
+                description  = item.get("Description", "")
+                apply_date   = (item.get("ApplyDate") or "")[:10]
+                plan_url     = f"https://energov.miamidade.gov/EnerGov_Prod/SelfService#/plan/{case_id}"
+
+                with get_conn() as conn:
+                    if conn.execute(
+                        "SELECT 1 FROM raw_captures WHERE url = ?", (plan_url,)
+                    ).fetchone():
+                        continue
+
+                log.info("  New: %s | %s | %s | %s", case_number, case_type, address, apply_date)
+
+                # Fetch full detail record.
+                plan_type  = case_type
+                plan_number = case_number
+                work_class = case_workclass
+                full_desc  = description
+                try:
+                    detail = page.evaluate(
+                        """async ({url, headers}) => {
+                            const r = await fetch(url, {headers});
+                            return await r.json();
+                        }""",
+                        {"url": f"{api_base}/plans/{case_id}", "headers": _READ_HEADERS},
+                    )
+                    pd = (detail or {}).get("Result") or {}
+                    full_desc   = pd.get("Description", description)
+                    plan_type   = pd.get("PlanType", case_type)
+                    plan_number = pd.get("PlanNumber", case_number)
+                    work_class  = pd.get("WorkClassName", case_workclass)
+                except Exception as exc:
+                    log.warning("  Detail fetch failed for %s: %s", case_id, exc)
+
+                # Fetch attachment names.
+                attachment_names: list[str] = []
+                try:
+                    att_resp = page.evaluate(
+                        """async ({url, headers}) => {
+                            const r = await fetch(url, {headers});
+                            return await r.json();
+                        }""",
+                        {
+                            "url": (
+                                f"{api_base}/entity/attachments/search"
+                                f"/entityattachments/{case_id}/2/true"
+                            ),
+                            "headers": _READ_HEADERS,
+                        },
+                    )
+                    att_list = (att_resp or {}).get("Result", {}).get("Attachments", [])
+                    attachment_names = [a["FileName"] for a in att_list if a.get("FileName")]
+                except Exception:
+                    pass
+
+                content_parts = [
+                    f"Plan Number: {plan_number}",
+                    f"Plan Type: {plan_type}",
+                    f"Work Class: {work_class}",
+                    f"Address: {address}",
+                    f"Apply Date: {apply_date}",
+                    f"Description: {full_desc}",
+                    f"Municipality: {municipality}",
+                ]
+                if attachment_names:
+                    content_parts.append(f"Attachments: {', '.join(attachment_names)}")
+
+                title = f"{plan_type}: {address or plan_number}"
+
+                with get_conn() as conn:
+                    conn.execute(
+                        """INSERT OR IGNORE INTO raw_captures
+                               (source, url, title, content, captured_at, processed)
+                           VALUES (?, ?, ?, ?, datetime('now'), 0)""",
+                        (source_name, plan_url, title, "\n".join(content_parts)),
+                    )
+
+                new_captures += 1
+
+        context.close()
+        browser.close()
+
+    log.info("EnerGov done — %d new captures", new_captures)
+    return new_captures
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -1303,6 +1542,11 @@ def main() -> None:
             log.info("── Granicus scrape — %d sources ──", len(granicus_sources))
             checked, inserted = scrape_granicus_sources(granicus_sources)
             log.info("Granicus done — %d meetings checked, %d new captures", checked, inserted)
+
+        energov_sources = sources.get("energov", [])
+        if energov_sources:
+            log.info("── EnerGov scrape — %d sources ──", len(energov_sources))
+            scrape_energov_sources(energov_sources)
 
 
 if __name__ == "__main__":

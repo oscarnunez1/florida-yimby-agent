@@ -31,6 +31,8 @@ CITY_TO_COUNTY: dict[str, str] = {
     "KEY BISCAYNE":      "Miami-Dade",
     "HOMESTEAD":         "Miami-Dade",
     "OPA-LOCKA":         "Miami-Dade",
+    "UNINCORPORATED MIAMI-DADE": "Miami-Dade",
+    "MIAMI-DADE":        "Miami-Dade",
     "FT. LAUDERDALE":    "Broward",
     "MIRAMAR":           "Broward",
     "PEMBROKE PINES":    "Broward",
