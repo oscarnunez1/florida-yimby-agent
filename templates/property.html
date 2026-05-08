@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Property Search — FL YIMBY{% endblock %}
+{% block content %}
+
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+  <div>
+    <h1 style="margin:0;">Property Search</h1>
+    <p style="margin:4px 0 0; font-family:var(--font-mono); font-size:11px; color:var(--text-muted);">
+      Miami-Dade County Property Appraiser
+    </p>
+  </div>
+  <a href="https://apps.miamidadepa.gov/PropertySearch/#/?address="
+     target="_blank"
+     style="font-family:var(--font-mono); font-size:11px; color:var(--text-muted); text-decoration:none;
+            border:1px solid var(--border-medium); border-radius:4px; padding:5px 10px;">
+    Open in new tab ↗
+  </a>
+</div>
+
+<div style="margin-bottom:12px; display:flex; gap:8px;">
+  <input type="text"
+         id="pa-address"
+         placeholder="Enter address or folio number..."
+         style="flex:1; padding:8px 12px; border:1px solid var(--border-medium); border-radius:6px;
+                font-family:var(--font-body); font-size:13px; background:white;"
+         onkeydown="if(event.key==='Enter') searchPA()">
+  <button onclick="searchPA()"
+          style="padding:8px 16px; background:var(--accent); color:white; border:none;
+                 border-radius:6px; font-family:var(--font-mono); font-size:11px; cursor:pointer;">
+    Search
+  </button>
+</div>
+
+<div style="border-radius:12px; overflow:hidden; border:1px solid var(--border-light); height:calc(100vh - 200px);">
+  <iframe
+    id="pa-iframe"
+    src="https://apps.miamidadepa.gov/PropertySearch/#/?address="
+    style="width:100%; height:100%; border:none;"
+    title="Miami-Dade Property Appraiser Search"
+    allow="fullscreen">
+  </iframe>
+</div>
+
+<script>
+function searchPA() {
+  const address = document.getElementById('pa-address').value.trim();
+  if (!address) return;
+  document.getElementById('pa-iframe').src =
+    'https://apps.miamidadepa.gov/PropertySearch/#/?address=' + encodeURIComponent(address);
+}
+</script>
+
+{% endblock %}

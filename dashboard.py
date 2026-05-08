@@ -8,6 +8,7 @@ Routes:
   GET  /sources               — Source health table
   GET  /coverage              — Coverage index with search
   GET  /briefs/<id>           — Single-brief detail page
+  GET  /property              — Miami-Dade PA property search iframe
   GET  /logs                  — Pipeline run history + latest log file
   POST /run-daily               — Execute run_daily.py and stream output
   POST /briefs/<id>/draft-article — Generate draft article via Claude Opus
@@ -772,6 +773,11 @@ def calendar():
         grouped_meetings=grouped_meetings,
         active_page='calendar',
     )
+
+
+@app.route("/property")
+def property_search():
+    return render_template("property.html", active_page="property")
 
 
 @app.route("/logs")
