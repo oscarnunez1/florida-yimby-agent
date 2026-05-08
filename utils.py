@@ -22,6 +22,7 @@ CITY_TO_COUNTY: dict[str, str] = {
     "SURFSIDE":          "Miami-Dade",
     "NORTH MIAMI":       "Miami-Dade",
     "NORTH MIAMI BEACH": "Miami-Dade",
+    "NORTH BAY VILLAGE": "Miami-Dade",
     "SWEETWATER":        "Miami-Dade",
     "CUTLER BAY":        "Miami-Dade",
     "PALMETTO BAY":      "Miami-Dade",

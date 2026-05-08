@@ -42,6 +42,23 @@ rss:
   # Zero dev=True classifications across 100 items. Accessing St Pete development
   # board agendas requires scraping stpete.org/boards directly (deferred).
 
+granicus:
+  # NBVillage Granicus RSS (mode=podcast) only carries video/x-ms-wmv enclosures.
+  # Agenda PDFs are linked from ViewPublisher.php as CloudFront URLs — scrape that instead.
+  - name: North Bay Village Planning and Zoning Board
+    view_publisher_url: https://nbvillage.granicus.com/ViewPublisher.php?view_id=1
+    base_url: https://nbvillage.granicus.com
+    board_filter: Planning & Zoning Board
+    municipality: North Bay Village
+    tags: [florida, municipal, miami-dade, north-bay-village]
+
+  - name: North Bay Village Commission
+    view_publisher_url: https://nbvillage.granicus.com/ViewPublisher.php?view_id=1
+    base_url: https://nbvillage.granicus.com
+    board_filter: Village Commission
+    municipality: North Bay Village
+    tags: [florida, municipal, miami-dade, north-bay-village]
+
   # ── Sources without RSS — not added ──────────────────────────────────────
   # One for the Money (oftmw.com/florida): Wix site — no RSS, no WP REST API.
   #   To add: would need an HTML scraper with Wix-specific selectors or

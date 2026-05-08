@@ -1055,6 +1055,194 @@ def scrape_legistar_playwright(sources: list[dict]) -> int:
     return new_total
 
 
+# ── Granicus municipal meeting portals ───────────────────────────────────────
+
+def scrape_granicus_sources(sources: list) -> tuple[int, int]:
+    """
+    Scrapes Granicus ViewPublisher pages for board meeting agenda PDFs.
+
+    NBVillage's Granicus RSS (mode=podcast) only carries video enclosures.
+    The actual agenda PDFs are linked from the ViewPublisher.php table as
+    CloudFront URLs. This scraper parses that table, matches rows by
+    board_filter, and follows the same IQM2 pipeline:
+      fetch page → find PDF → _extract_agenda_projects → raw_captures.
+
+    Returns (meetings_checked, captures_inserted).
+    """
+    from collections import defaultdict
+
+    total_checked = 0
+    total_inserted = 0
+
+    # Group sources sharing the same page so we fetch each page once.
+    pages: dict[str, list] = defaultdict(list)
+    for src in sources:
+        pages[src["view_publisher_url"]].append(src)
+
+    for page_url, page_sources in pages.items():
+        base_url = page_sources[0].get("base_url", "")
+        log.info("Fetching Granicus page: %s", page_url)
+
+        try:
+            r = httpx.get(
+                page_url,
+                headers={"User-Agent": HTML_USER_AGENT},
+                timeout=REQUEST_TIMEOUT,
+                follow_redirects=True,
+            )
+            r.raise_for_status()
+        except Exception as exc:
+            log.warning("  Granicus fetch failed — %s", exc)
+            continue
+
+        tree = HTMLParser(r.text)
+
+        for row in tree.css("tr"):
+            cells = row.css("td")
+            if len(cells) < 2:
+                continue
+
+            board_text = cells[0].text(strip=True)
+
+            # Match against configured board filters.
+            matched_src = None
+            for src in page_sources:
+                if src.get("board_filter", "").lower() in board_text.lower():
+                    matched_src = src
+                    break
+            if not matched_src:
+                continue
+
+            # Parse date — cell may contain \xa0 and a time suffix like "- 6:00 PM".
+            meeting_date: Optional[str] = None
+            date_clean = re.sub(r"[\s\xa0]+", " ", cells[1].text()).strip()
+            date_m = re.search(r"(\w+\s+\d{1,2},?\s+\d{4})", date_clean)
+            if date_m:
+                date_raw = re.sub(r"\s+", " ", date_m.group(1)).strip()
+                for fmt in ("%B %d, %Y", "%b %d, %Y"):
+                    try:
+                        meeting_date = datetime.strptime(date_raw, fmt).strftime("%Y-%m-%d")
+                        break
+                    except ValueError:
+                        continue
+
+            # Extract links: AgendaViewer (stable meeting ID) + CloudFront PDF.
+            agenda_viewer_url: Optional[str] = None
+            pdf_url: Optional[str] = None
+            for a in row.css("a[href]"):
+                href = a.attributes.get("href", "") or ""
+                text = a.text(strip=True)
+                if "AgendaViewer" in href:
+                    full = ("https:" + href) if href.startswith("//") else href
+                    agenda_viewer_url = agenda_viewer_url or full
+                elif "Packet" in text or "cloudfront.net" in href:
+                    pdf_url = pdf_url or href
+
+            # Use AgendaViewer URL as the stable meeting identity for dedup.
+            meeting_url = agenda_viewer_url or (
+                f"{page_url}#{matched_src['board_filter'].replace(' ', '-')}-{meeting_date}"
+            )
+            source_name  = matched_src["name"]
+            municipality = matched_src.get("municipality", "")
+
+            total_checked += 1
+
+            with get_conn() as conn:
+                prior = conn.execute(
+                    "SELECT agenda_url FROM meetings WHERE meeting_url = ?",
+                    (meeting_url,),
+                ).fetchone()
+
+            should_extract = False
+            if prior is None:
+                with get_conn() as conn:
+                    conn.execute(
+                        """INSERT INTO meetings
+                               (source, meeting_url, board, meeting_date, agenda_url, municipality)
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (source_name, meeting_url, board_text, meeting_date, pdf_url, municipality),
+                    )
+                if pdf_url:
+                    should_extract = True
+            elif prior["agenda_url"] is None and pdf_url:
+                # PDF newly appeared since last run.
+                with get_conn() as conn:
+                    conn.execute(
+                        "UPDATE meetings SET agenda_url=?, agenda_posted_at=datetime('now') WHERE meeting_url=?",
+                        (pdf_url, meeting_url),
+                    )
+                log.info("  AGENDA NEWLY POSTED  [%s]  %s", board_text, meeting_date or "")
+                should_extract = True
+
+            if not should_extract:
+                continue
+
+            # Skip extraction for meetings more than 30 days in the past —
+            # avoids processing years of historical backlog on first run.
+            if meeting_date:
+                try:
+                    from datetime import date as _date
+                    delta = (_date.today() - _date.fromisoformat(meeting_date)).days
+                    if delta > 30:
+                        log.debug("  Skipping old meeting (%s days ago): %s", delta, meeting_date)
+                        continue
+                except ValueError:
+                    pass
+
+            # Granicus Agenda Packets can be 10-50MB — skip if over API limit.
+            MAX_PDF_BYTES = 4 * 1024 * 1024
+            try:
+                head_resp = httpx.head(
+                    pdf_url,
+                    headers={"User-Agent": HTML_USER_AGENT},
+                    timeout=10,
+                    follow_redirects=True,
+                )
+                content_length = int(head_resp.headers.get("content-length", 0))
+                if content_length > MAX_PDF_BYTES:
+                    log.warning(
+                        "  PDF too large (%d MB), skipping: %s",
+                        content_length // 1024 // 1024,
+                        pdf_url,
+                    )
+                    continue
+            except Exception:
+                pass
+
+            log.info("  Extracting: %s %s", source_name, meeting_date or "(date unknown)")
+            projects = _extract_agenda_projects(pdf_url, board_text, meeting_date)
+
+            with get_conn() as conn:
+                for project in projects:
+                    item_num  = str(project.get("agenda_item_number") or "")
+                    item_url  = f"{meeting_url}#item-{item_num}" if item_num else meeting_url
+                    pname     = (project.get("project_name") or "").strip()
+                    address   = (project.get("address") or "").strip()
+                    title     = f"{pname} – {address}" if pname and address else pname or address
+                    if not title:
+                        title = f"{board_text} – {meeting_date} – Item {item_num}"
+
+                    metadata = json.dumps({
+                        "hearing_date":        meeting_date,
+                        "hearing_board":       board_text,
+                        "agenda_url":          pdf_url,
+                        "agenda_item_number":  item_num or None,
+                        "agenda_newly_posted": prior is None,
+                    })
+                    cur = conn.execute(
+                        """INSERT OR IGNORE INTO raw_captures
+                               (source, url, title, content, metadata_json)
+                           VALUES (?, ?, ?, ?, ?)""",
+                        (source_name, item_url, title,
+                         (project.get("description") or "").strip(), metadata),
+                    )
+                    if cur.rowcount:
+                        total_inserted += 1
+
+    log.info("Granicus done — %d meetings checked, %d new captures", total_checked, total_inserted)
+    return total_checked, total_inserted
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -1109,6 +1297,12 @@ def main() -> None:
         log.info("── Legistar calendar scrape — %d sources ──", len(legistar_sources))
         checked, inserted = scrape_legistar_sources(legistar_sources)
         log.info("Legistar done — %d meetings checked, %d new captures", checked, inserted)
+
+        granicus_sources = sources.get("granicus", [])
+        if granicus_sources:
+            log.info("── Granicus scrape — %d sources ──", len(granicus_sources))
+            checked, inserted = scrape_granicus_sources(granicus_sources)
+            log.info("Granicus done — %d meetings checked, %d new captures", checked, inserted)
 
 
 if __name__ == "__main__":
