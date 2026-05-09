@@ -24,6 +24,7 @@ import os
 import subprocess
 import sys
 import yaml
+import httpx
 from collections import Counter
 from datetime import datetime, date, timedelta, timezone
 from functools import lru_cache
@@ -778,6 +779,93 @@ def calendar():
 @app.route("/property")
 def property_search():
     return render_template("property.html", active_page="property")
+
+
+@app.route("/api/map-projects")
+def api_map_projects():
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT
+                ei.id,
+                ei.project_name,
+                ei.address,
+                ei.market,
+                ei.developer,
+                ei.architect,
+                ei.units,
+                ei.height,
+                ei.status,
+                ei.latitude,
+                ei.longitude,
+                ei.extracted_data_json,
+                rc.source,
+                rc.captured_at,
+                b.id    AS brief_id,
+                b.headline
+            FROM extracted_items ei
+            JOIN raw_captures rc ON ei.raw_capture_id = rc.id
+            LEFT JOIN briefs b ON b.extracted_item_id = ei.id
+            WHERE ei.is_development_item = 1
+              AND ei.florida_relevance  = 1
+              AND ei.address IS NOT NULL
+              AND ei.address != ''
+            ORDER BY rc.captured_at DESC
+            LIMIT 500
+        """).fetchall()
+
+    projects = []
+    for row in rows:
+        data = json.loads(row["extracted_data_json"] or "{}")
+        projects.append({
+            "id":           row["id"],
+            "project_name": row["project_name"] or "",
+            "address":      row["address"] or "",
+            "market":       row["market"] or "",
+            "developer":    row["developer"] or "",
+            "architect":    row["architect"] or "",
+            "units":        row["units"] or "",
+            "height":       row["height"] or "",
+            "status":       row["status"] or "",
+            "source":       row["source"] or "",
+            "captured_at":  row["captured_at"] or "",
+            "latitude":     row["latitude"],
+            "longitude":    row["longitude"],
+            "brief_id":     row["brief_id"],
+            "headline":     row["headline"] or "",
+            "plan_type":    data.get("plan_type", data.get("event_type", "")),
+        })
+
+    return jsonify(projects)
+
+
+@app.route("/api/geocode")
+def api_geocode():
+    address = request.args.get("address", "").strip()
+    if not address:
+        return jsonify(error="No address"), 400
+
+    query = (
+        address if ("fl" in address.lower() or "florida" in address.lower())
+        else f"{address}, Florida"
+    )
+
+    try:
+        resp = httpx.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={"q": query, "format": "json", "limit": 1, "countrycodes": "us"},
+            headers={"User-Agent": "FloridaYIMBYAgent/1.0"},
+            timeout=10,
+        )
+        results = resp.json()
+        if results:
+            return jsonify(
+                lat=float(results[0]["lat"]),
+                lon=float(results[0]["lon"]),
+                display=results[0]["display_name"],
+            )
+        return jsonify(error="Not found"), 404
+    except Exception as exc:
+        return jsonify(error=str(exc)), 500
 
 
 @app.route("/logs")

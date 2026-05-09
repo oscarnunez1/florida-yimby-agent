@@ -109,6 +109,8 @@ def init_db() -> None:
             ("extracted_items", "county",               "TEXT"),
             ("extracted_items", "region",               "TEXT"),
             ("meetings",        "municipality",          "TEXT"),
+            ("extracted_items", "latitude",              "REAL"),
+            ("extracted_items", "longitude",             "REAL"),
         ]
 
         conn.executescript("""

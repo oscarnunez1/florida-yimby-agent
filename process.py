@@ -841,6 +841,62 @@ def _extract_coverage_fields(title: str, body: str, client: anthropic.Anthropic,
     return raw
 
 
+def cmd_geocode(limit: int = 50) -> None:
+    """Geocode extracted items that have an address but no coordinates."""
+    import time as _time
+
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT id, address, market
+            FROM extracted_items
+            WHERE is_development_item = 1
+              AND florida_relevance   = 1
+              AND address IS NOT NULL
+              AND address != ''
+              AND latitude IS NULL
+            LIMIT ?
+        """, (limit,)).fetchall()
+
+    if not rows:
+        log.info("All items already geocoded")
+        return
+
+    log.info("Geocoding %d items", len(rows))
+    geocoded = 0
+
+    for row in rows:
+        address = row["address"]
+        market  = row["market"] or ""
+        query   = f"{address}, {market}, Florida" if market else f"{address}, Florida"
+
+        try:
+            resp = httpx.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={"q": query, "format": "json", "limit": 1, "countrycodes": "us"},
+                headers={"User-Agent": "FloridaYIMBYAgent/1.0"},
+                timeout=10,
+            )
+            results = resp.json()
+            if results:
+                lat = float(results[0]["lat"])
+                lon = float(results[0]["lon"])
+                with get_conn() as conn:
+                    conn.execute(
+                        "UPDATE extracted_items SET latitude=?, longitude=? WHERE id=?",
+                        (lat, lon, row["id"]),
+                    )
+                geocoded += 1
+                log.info("  id=%-4d  %.4f, %.4f  [%s]", row["id"], lat, lon, address[:50])
+            else:
+                log.info("  id=%-4d  not found  [%s]", row["id"], address[:50])
+        except Exception as exc:
+            log.warning("  id=%-4d  geocode failed: %s", row["id"], exc)
+
+        _time.sleep(1.1)  # Nominatim rate limit: 1 req/second
+
+    log.info("Geocode done — %d/%d geocoded", geocoded, len(rows))
+
+
 def cmd_ingest_coverage(limit: Optional[int]) -> None:
     """
     Walk the full floridayimby.com post archive via the WordPress REST API,
@@ -971,6 +1027,10 @@ def main() -> None:
 
     sub.add_parser("update-markets", help="Re-run city-level market detection on all extracted_items")
 
+    p_geocode = sub.add_parser("geocode", help="Geocode extracted items via Nominatim (1 req/s)")
+    p_geocode.add_argument("--limit", type=int, default=50, metavar="N",
+                           help="Geocode at most N items per run (default 50)")
+
     args = parser.parse_args()
 
     if args.command == "status":
@@ -988,6 +1048,8 @@ def main() -> None:
         cmd_draft_briefs(limit=args.limit)
     elif args.command == "update-markets":
         cmd_update_markets()
+    elif args.command == "geocode":
+        cmd_geocode(limit=args.limit)
 
 
 if __name__ == "__main__":

@@ -1,84 +1,110 @@
 {% extends "base.html" %}
+{% block title %}Project Map — FL YIMBY{% endblock %}
 {% block content %}
 
-<div style="display:flex; align-items:center; gap:12px; margin-bottom:24px;">
-  <h1 style="margin:0;">Property Search</h1>
+<!-- Page header -->
+<div style="display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
+  <h1 style="margin:0;">Project Map</h1>
+  <div style="display:flex; gap:8px; flex:1; max-width:400px; margin-left:auto;">
+    <input type="text"
+           id="map-search"
+           placeholder="Search address..."
+           style="flex:1; padding:7px 12px; border:1px solid var(--border-medium); border-radius:6px; font-size:13px; font-family:var(--font-body);"
+           onkeydown="if(event.key==='Enter') geocodeAndZoom()">
+    <button onclick="geocodeAndZoom()"
+            style="padding:7px 14px; background:var(--accent); color:white; border:none; border-radius:6px; font-family:var(--font-mono); font-size:11px; font-weight:600; cursor:pointer;">
+      Go
+    </button>
+  </div>
 </div>
 
-<div style="max-width:600px;">
-
-  <!-- Address search -->
-  <div style="background:var(--bg-card); border:1px solid var(--border-light); border-radius:12px; padding:24px; margin-bottom:16px;">
-    <div style="font-family:var(--font-mono); font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-muted); margin-bottom:12px;">Search by Address</div>
-    <div style="display:flex; gap:8px;">
-      <input type="text"
-             id="pa-address"
-             placeholder="1600 Red Road, Coral Gables..."
-             style="flex:1; padding:9px 12px; border:1px solid var(--border-medium); border-radius:6px; font-family:var(--font-body); font-size:13px; background:white;"
-             onkeydown="if(event.key==='Enter') searchByAddress()">
-      <button onclick="searchByAddress()"
-              style="padding:9px 16px; background:var(--accent); color:white; border:none; border-radius:6px; font-family:var(--font-mono); font-size:11px; font-weight:600; cursor:pointer; white-space:nowrap;">
-        Open in PA ↗
-      </button>
-    </div>
-  </div>
-
-  <!-- Folio search -->
-  <div style="background:var(--bg-card); border:1px solid var(--border-light); border-radius:12px; padding:24px; margin-bottom:16px;">
-    <div style="font-family:var(--font-mono); font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-muted); margin-bottom:12px;">Search by Folio Number</div>
-    <div style="display:flex; gap:8px;">
-      <input type="text"
-             id="pa-folio"
-             placeholder="30-7904-000-0050"
-             style="flex:1; padding:9px 12px; border:1px solid var(--border-medium); border-radius:6px; font-family:var(--font-mono); font-size:13px; background:white;"
-             onkeydown="if(event.key==='Enter') searchByFolio()">
-      <button onclick="searchByFolio()"
-              style="padding:9px 16px; background:var(--accent); color:white; border:none; border-radius:6px; font-family:var(--font-mono); font-size:11px; font-weight:600; cursor:pointer; white-space:nowrap;">
-        Open in PA ↗
-      </button>
-    </div>
-  </div>
-
-  <!-- Quick links -->
-  <div style="background:var(--bg-card); border:1px solid var(--border-light); border-radius:12px; padding:24px;">
-    <div style="font-family:var(--font-mono); font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-muted); margin-bottom:14px;">Quick Links</div>
-    <div style="display:flex; flex-direction:column; gap:8px;">
-      <a href="https://apps.miamidadepa.gov/PropertySearch/#/?address=" target="_blank"
-         style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border:1px solid var(--border-light); border-radius:8px; text-decoration:none; color:var(--text-primary); font-size:13px; transition:all 0.15s;">
-        <span>Property Search</span>
-        <span style="font-family:var(--font-mono); font-size:10px; color:var(--text-muted);">apps.miamidadepa.gov ↗</span>
-      </a>
-      <a href="https://www.miamidadepa.gov/pa/real-estate/property-search.page" target="_blank"
-         style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border:1px solid var(--border-light); border-radius:8px; text-decoration:none; color:var(--text-primary); font-size:13px; transition:all 0.15s;">
-        <span>Property Appraiser Home</span>
-        <span style="font-family:var(--font-mono); font-size:10px; color:var(--text-muted);">miamidadepa.gov ↗</span>
-      </a>
-      <a href="https://energov.miamidade.gov/EnerGov_Prod/SelfService#/search?m=3&ps=10&pn=1&em=true" target="_blank"
-         style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border:1px solid var(--border-light); border-radius:8px; text-decoration:none; color:var(--text-primary); font-size:13px; transition:all 0.15s;">
-        <span>EnerGov Plan Search</span>
-        <span style="font-family:var(--font-mono); font-size:10px; color:var(--text-muted);">energov.miamidade.gov ↗</span>
-      </a>
-      <a href="https://www.miamidade.gov/Apps/RER/EPSPortal/" target="_blank"
-         style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border:1px solid var(--border-light); border-radius:8px; text-decoration:none; color:var(--text-primary); font-size:13px; transition:all 0.15s;">
-        <span>Miami-Dade Permit Search</span>
-        <span style="font-family:var(--font-mono); font-size:10px; color:var(--text-muted);">miamidade.gov ↗</span>
-      </a>
-    </div>
-  </div>
-
+<!-- Legend -->
+<div style="display:flex; gap:12px; margin-bottom:12px; flex-wrap:wrap; font-family:var(--font-mono); font-size:11px; color:var(--text-muted);">
+  <span><span style="color:#ef4444;">●</span> Pre-Application</span>
+  <span><span style="color:#f59e0b;">●</span> Site Plan Review</span>
+  <span><span style="color:#3b82f6;">●</span> Variance / Rezoning</span>
+  <span><span style="color:#8b5cf6;">●</span> Plat</span>
+  <span><span style="color:#10b981;">●</span> Other</span>
+  <span id="project-count" style="margin-left:auto;"></span>
 </div>
 
+<!-- Map container -->
+<div id="map" style="height:calc(100vh - 200px); border-radius:12px; border:1px solid var(--border-light); overflow:hidden;"></div>
+
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-function searchByAddress() {
-  const val = document.getElementById('pa-address').value.trim();
-  if (!val) return;
-  window.open(`https://apps.miamidadepa.gov/PropertySearch/#/?address=${encodeURIComponent(val)}`, '_blank');
+const map = L.map('map').setView([25.7617, -80.1918], 11);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap contributors',
+  maxZoom: 19
+}).addTo(map);
+
+function getPinColor(planType) {
+  const pt = (planType || '').toLowerCase();
+  if (pt.includes('pre-application') || pt.includes('pre application')) return '#ef4444';
+  if (pt.includes('site plan') || pt.includes('aspr'))                   return '#f59e0b';
+  if (pt.includes('variance') || pt.includes('rezoning') || pt.includes('special exception')) return '#3b82f6';
+  if (pt.includes('plat'))                                                return '#8b5cf6';
+  return '#10b981';
 }
 
-function searchByFolio() {
-  const val = document.getElementById('pa-folio').value.trim();
-  if (!val) return;
-  window.open(`https://apps.miamidadepa.gov/PropertySearch/#/?folio=${encodeURIComponent(val.replace(/-/g,''))}`, '_blank');
+function makeIcon(color) {
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:14px;height:14px;background:${color};border:2px solid white;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,0.3);"></div>`,
+    iconSize:    [14, 14],
+    iconAnchor:  [7, 7],
+    popupAnchor: [0, -10]
+  });
+}
+
+fetch('/api/map-projects')
+  .then(r => r.json())
+  .then(projects => {
+    const located = projects.filter(p => p.latitude && p.longitude);
+    document.getElementById('project-count').textContent = `${located.length} projects mapped`;
+
+    located.forEach(p => {
+      const color  = getPinColor(p.plan_type);
+      const marker = L.marker([p.latitude, p.longitude], {icon: makeIcon(color)});
+
+      const popup = `
+        <div style="font-family:-apple-system,sans-serif;min-width:220px;">
+          <div style="font-weight:600;font-size:13px;margin-bottom:4px;">${p.project_name || p.address}</div>
+          <div style="font-size:11px;color:#666;margin-bottom:8px;">${p.address}</div>
+          ${p.plan_type  ? `<div style="font-size:11px;margin-bottom:4px;"><strong>Type:</strong> ${p.plan_type}</div>` : ''}
+          ${p.developer  ? `<div style="font-size:11px;margin-bottom:4px;"><strong>Developer:</strong> ${p.developer}</div>` : ''}
+          ${p.units      ? `<div style="font-size:11px;margin-bottom:4px;"><strong>Units:</strong> ${p.units}</div>` : ''}
+          ${p.height     ? `<div style="font-size:11px;margin-bottom:4px;"><strong>Height:</strong> ${p.height} ft</div>` : ''}
+          ${p.status     ? `<div style="font-size:11px;margin-bottom:4px;"><strong>Status:</strong> ${p.status}</div>` : ''}
+          <div style="font-size:10px;color:#999;margin-top:6px;margin-bottom:8px;">${p.source} · ${p.captured_at.slice(0,10)}</div>
+          ${p.brief_id   ? `<a href="#" onclick="openBriefModal(${p.brief_id});return false;" style="font-size:11px;color:#e8522a;font-weight:600;">Open Brief →</a>` : ''}
+        </div>
+      `;
+      marker.bindPopup(popup);
+      marker.addTo(map);
+    });
+  });
+
+function geocodeAndZoom() {
+  const address = document.getElementById('map-search').value.trim();
+  if (!address) return;
+
+  fetch(`/api/geocode?address=${encodeURIComponent(address)}`)
+    .then(r => r.json())
+    .then(data => {
+      if (data.lat) {
+        map.setView([data.lat, data.lon], 15);
+        L.marker([data.lat, data.lon])
+          .addTo(map)
+          .bindPopup(`<strong>${address}</strong><br><small>${data.display}</small>`)
+          .openPopup();
+      }
+    });
 }
 </script>
 

@@ -7,6 +7,7 @@ Runs in sequence:
   3. process.py dedup       — update already_covered flags
   4. process.py enrich      — fill missing fields via Tavily + Haiku
   5. process.py draft-briefs — generate briefs for new uncovered items
+  6. process.py geocode     — geocode new items via Nominatim
 
 Logs each run to the daily_log table.
 """
@@ -96,7 +97,7 @@ def main() -> None:
         print("[run_daily] enrich OK")
 
     # ── Step 5: draft-briefs ──────────────────────────────────────────────────
-    print("[run_daily] step 5/5: draft-briefs")
+    print("[run_daily] step 5/6: draft-briefs")
     rc, out = _run([PYTHON, "process.py", "draft-briefs"])
     if rc != 0:
         errors["draft-briefs"] = out[-500:] if len(out) > 500 else out
@@ -105,6 +106,15 @@ def main() -> None:
         print("[run_daily] draft-briefs OK")
 
     new_briefs = _count_new_briefs(briefs_before)
+
+    # ── Step 6: geocode ───────────────────────────────────────────────────────
+    print("[run_daily] step 6/6: geocode")
+    rc, out = _run([PYTHON, "process.py", "geocode", "--limit", "50"])
+    if rc != 0:
+        errors["geocode"] = out[-500:] if len(out) > 500 else out
+        print(f"[run_daily] geocode FAILED (rc={rc})")
+    else:
+        print("[run_daily] geocode OK")
     duration   = round(time.time() - start, 1)
 
     print(f"[run_daily] done — {new_captures} new captures, {new_briefs} new briefs, "
