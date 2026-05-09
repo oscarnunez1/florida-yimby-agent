@@ -1,52 +1,84 @@
 {% extends "base.html" %}
-{% block title %}Property Search — FL YIMBY{% endblock %}
 {% block content %}
 
-<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
-  <div>
-    <h1 style="margin:0;">Property Search</h1>
-    <p style="margin:4px 0 0; font-family:var(--font-mono); font-size:11px; color:var(--text-muted);">
-      Miami-Dade County Property Appraiser
-    </p>
+<div style="display:flex; align-items:center; gap:12px; margin-bottom:24px;">
+  <h1 style="margin:0;">Property Search</h1>
+</div>
+
+<div style="max-width:600px;">
+
+  <!-- Address search -->
+  <div style="background:var(--bg-card); border:1px solid var(--border-light); border-radius:12px; padding:24px; margin-bottom:16px;">
+    <div style="font-family:var(--font-mono); font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-muted); margin-bottom:12px;">Search by Address</div>
+    <div style="display:flex; gap:8px;">
+      <input type="text"
+             id="pa-address"
+             placeholder="1600 Red Road, Coral Gables..."
+             style="flex:1; padding:9px 12px; border:1px solid var(--border-medium); border-radius:6px; font-family:var(--font-body); font-size:13px; background:white;"
+             onkeydown="if(event.key==='Enter') searchByAddress()">
+      <button onclick="searchByAddress()"
+              style="padding:9px 16px; background:var(--accent); color:white; border:none; border-radius:6px; font-family:var(--font-mono); font-size:11px; font-weight:600; cursor:pointer; white-space:nowrap;">
+        Open in PA ↗
+      </button>
+    </div>
   </div>
-  <a href="https://apps.miamidadepa.gov/PropertySearch/#/?address="
-     target="_blank"
-     style="font-family:var(--font-mono); font-size:11px; color:var(--text-muted); text-decoration:none;
-            border:1px solid var(--border-medium); border-radius:4px; padding:5px 10px;">
-    Open in new tab ↗
-  </a>
-</div>
 
-<div style="margin-bottom:12px; display:flex; gap:8px;">
-  <input type="text"
-         id="pa-address"
-         placeholder="Enter address or folio number..."
-         style="flex:1; padding:8px 12px; border:1px solid var(--border-medium); border-radius:6px;
-                font-family:var(--font-body); font-size:13px; background:white;"
-         onkeydown="if(event.key==='Enter') searchPA()">
-  <button onclick="searchPA()"
-          style="padding:8px 16px; background:var(--accent); color:white; border:none;
-                 border-radius:6px; font-family:var(--font-mono); font-size:11px; cursor:pointer;">
-    Search
-  </button>
-</div>
+  <!-- Folio search -->
+  <div style="background:var(--bg-card); border:1px solid var(--border-light); border-radius:12px; padding:24px; margin-bottom:16px;">
+    <div style="font-family:var(--font-mono); font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-muted); margin-bottom:12px;">Search by Folio Number</div>
+    <div style="display:flex; gap:8px;">
+      <input type="text"
+             id="pa-folio"
+             placeholder="30-7904-000-0050"
+             style="flex:1; padding:9px 12px; border:1px solid var(--border-medium); border-radius:6px; font-family:var(--font-mono); font-size:13px; background:white;"
+             onkeydown="if(event.key==='Enter') searchByFolio()">
+      <button onclick="searchByFolio()"
+              style="padding:9px 16px; background:var(--accent); color:white; border:none; border-radius:6px; font-family:var(--font-mono); font-size:11px; font-weight:600; cursor:pointer; white-space:nowrap;">
+        Open in PA ↗
+      </button>
+    </div>
+  </div>
 
-<div style="border-radius:12px; overflow:hidden; border:1px solid var(--border-light); height:calc(100vh - 200px);">
-  <iframe
-    id="pa-iframe"
-    src="https://apps.miamidadepa.gov/PropertySearch/#/?address="
-    style="width:100%; height:100%; border:none;"
-    title="Miami-Dade Property Appraiser Search"
-    allow="fullscreen">
-  </iframe>
+  <!-- Quick links -->
+  <div style="background:var(--bg-card); border:1px solid var(--border-light); border-radius:12px; padding:24px;">
+    <div style="font-family:var(--font-mono); font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-muted); margin-bottom:14px;">Quick Links</div>
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      <a href="https://apps.miamidadepa.gov/PropertySearch/#/?address=" target="_blank"
+         style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border:1px solid var(--border-light); border-radius:8px; text-decoration:none; color:var(--text-primary); font-size:13px; transition:all 0.15s;">
+        <span>Property Search</span>
+        <span style="font-family:var(--font-mono); font-size:10px; color:var(--text-muted);">apps.miamidadepa.gov ↗</span>
+      </a>
+      <a href="https://www.miamidadepa.gov/pa/real-estate/property-search.page" target="_blank"
+         style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border:1px solid var(--border-light); border-radius:8px; text-decoration:none; color:var(--text-primary); font-size:13px; transition:all 0.15s;">
+        <span>Property Appraiser Home</span>
+        <span style="font-family:var(--font-mono); font-size:10px; color:var(--text-muted);">miamidadepa.gov ↗</span>
+      </a>
+      <a href="https://energov.miamidade.gov/EnerGov_Prod/SelfService#/search?m=3&ps=10&pn=1&em=true" target="_blank"
+         style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border:1px solid var(--border-light); border-radius:8px; text-decoration:none; color:var(--text-primary); font-size:13px; transition:all 0.15s;">
+        <span>EnerGov Plan Search</span>
+        <span style="font-family:var(--font-mono); font-size:10px; color:var(--text-muted);">energov.miamidade.gov ↗</span>
+      </a>
+      <a href="https://www.miamidade.gov/Apps/RER/EPSPortal/" target="_blank"
+         style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border:1px solid var(--border-light); border-radius:8px; text-decoration:none; color:var(--text-primary); font-size:13px; transition:all 0.15s;">
+        <span>Miami-Dade Permit Search</span>
+        <span style="font-family:var(--font-mono); font-size:10px; color:var(--text-muted);">miamidade.gov ↗</span>
+      </a>
+    </div>
+  </div>
+
 </div>
 
 <script>
-function searchPA() {
-  const address = document.getElementById('pa-address').value.trim();
-  if (!address) return;
-  document.getElementById('pa-iframe').src =
-    'https://apps.miamidadepa.gov/PropertySearch/#/?address=' + encodeURIComponent(address);
+function searchByAddress() {
+  const val = document.getElementById('pa-address').value.trim();
+  if (!val) return;
+  window.open(`https://apps.miamidadepa.gov/PropertySearch/#/?address=${encodeURIComponent(val)}`, '_blank');
+}
+
+function searchByFolio() {
+  const val = document.getElementById('pa-folio').value.trim();
+  if (!val) return;
+  window.open(`https://apps.miamidadepa.gov/PropertySearch/#/?folio=${encodeURIComponent(val.replace(/-/g,''))}`, '_blank');
 }
 </script>
 
